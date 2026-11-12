@@ -22,6 +22,7 @@ import { rutasAuditoria } from './routes/auditoria.js';
 import { rutasProveedores } from './routes/proveedores.js';
 import { rutasStock } from './routes/stock.js';
 import { rutasCompras } from './routes/compras.js';
+import { rutasPlata } from './routes/plata.js';
 
 export const COOKIE_SESION = 'hc_sesion';
 
@@ -61,6 +62,7 @@ export async function crearApp({ base, carpetaWeb, logger = false }: OpcionesApp
     await rutasProveedores(r, api);
     await rutasStock(r, api);
     await rutasCompras(r, api);
+    await rutasPlata(r, api);
     await rutasImportar(r, api);
     await rutasBackups(r, api);
     await rutasAuditoria(r, api);

@@ -1,12 +1,19 @@
 import { useState, type ReactNode } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { Archive, Boxes, ClipboardList, PackageCheck, BookOpen, Database, FileUp, Home, LogOut, Menu, Settings, ShieldCheck, Tag, Tags, Truck, User, Users, X } from 'lucide-react';
+import { Archive, Boxes, CreditCard, HandCoins, Receipt, ShoppingBag, Wallet, ClipboardList, PackageCheck, BookOpen, Database, FileUp, Home, LogOut, Menu, Settings, ShieldCheck, Tag, Tags, Truck, User, Users, X } from 'lucide-react';
 import { useSesion } from '../sesion';
 import { Logo } from './ui';
 
 type Item = { a: string; texto: string; icono: typeof Home; modulo?: string; accion?: 'crear' };
 const SECCIONES: { titulo: string; items: Item[] }[] = [
   { titulo: '', items: [{ a: '/', texto: 'Inicio', icono: Home }] },
+  { titulo: 'Ventas y plata', items: [
+    { a: '/ventas', texto: 'Ventas', icono: ShoppingBag, modulo: 'ventas' },
+    { a: '/caja', texto: 'Caja', icono: Wallet, modulo: 'caja' },
+    { a: '/gastos', texto: 'Gastos', icono: Receipt, modulo: 'gastos' },
+    { a: '/pagos', texto: 'Pagos a proveedores', icono: HandCoins, modulo: 'caja' },
+    { a: '/cuentas', texto: 'Cuentas y formas de pago', icono: CreditCard, modulo: 'caja' },
+  ] },
   { titulo: 'Productos', items: [
     { a: '/catalogo', texto: 'Catálogo', icono: Tags, modulo: 'catalogo' },
     { a: '/precios', texto: 'Precios', icono: Tag, modulo: 'precios' },
@@ -56,7 +63,7 @@ export function Marco({ children }: { children: ReactNode }) {
           );
         })}
         <div className="px-3 pt-2 text-[11px] leading-relaxed text-marfil/35">
-          Próximas entregas: ventas y caja, costos y producción, panel y reportes.
+          Próximas entregas: costos y producción, panel y reportes.
         </div>
       </div>
       <div className="border-t border-marfil/10 p-3">

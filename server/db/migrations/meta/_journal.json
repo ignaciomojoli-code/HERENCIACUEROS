@@ -15,6 +15,13 @@
       "when": 1794504454912,
       "tag": "0001_stock_compras",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1794507045332,
+      "tag": "0002_ventas_caja_gastos",
+      "breakpoints": true
     }
   ]
 }

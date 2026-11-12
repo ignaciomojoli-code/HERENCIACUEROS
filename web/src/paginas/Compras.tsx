@@ -33,7 +33,7 @@ export function PaginaCompras() {
   const fijar = (k: string, v: string) => { const p = new URLSearchParams(params); if (v) p.set(k, v); else p.delete(k); setParams(p, { replace: true }); };
   const provs = useQuery({ queryKey: ['proveedores'], queryFn: () => api.get<Proveedor[]>('/proveedores'), enabled: puede('proveedores') });
   const lista = useQuery({ queryKey: ['compras', proveedorId, estado], queryFn: () => api.get<CompraResumen[]>('/compras' + qs({ proveedorId, estado: estado === 'abiertos' || estado === 'todos' ? '' : estado, pendientes: estado === 'abiertos' ? 'true' : '' })) });
-  const resumen = useQuery({ queryKey: ['resumen-proveedor', proveedorId], queryFn: () => api.get<{ compras: number; recibidoCentavos?: number; unidadesPendientes: number; pendienteCentavos?: number }>(`/proveedores/${proveedorId}/resumen`), enabled: !!proveedorId && puede('proveedores') });
+  const resumen = useQuery({ queryKey: ['resumen-proveedor', proveedorId], queryFn: () => api.get<{ compras: number; recibidoCentavos?: number; unidadesPendientes: number; pendienteCentavos?: number; pagadoCentavos?: number; saldoCentavos?: number }>(`/proveedores/${proveedorId}/resumen`), enabled: !!proveedorId && puede('proveedores') });
   const verCostos = puede('costos');
   return (
     <>
@@ -52,7 +52,7 @@ export function PaginaCompras() {
         <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
           <div className="tarjeta p-4"><div className="etiqueta">Pedidos</div><div className="mt-1 font-titulo text-2xl font-bold">{resumen.data.compras}</div></div>
           <div className="tarjeta p-4"><div className="etiqueta">Unidades por entregar</div><div className="mt-1 font-titulo text-2xl font-bold">{resumen.data.unidadesPendientes}</div></div>
-          {verCostos && <div className="tarjeta p-4"><div className="etiqueta">Total recibido</div><div className="mt-1 font-titulo text-2xl font-bold">{pesos(resumen.data.recibidoCentavos)}</div><div className="text-xs text-carbon/50">Pagos y saldo: llegan con el módulo de caja</div></div>}
+          {verCostos && <div className="tarjeta p-4"><div className="etiqueta">Total recibido</div><div className="mt-1 font-titulo text-2xl font-bold">{pesos(resumen.data.recibidoCentavos)}</div><div className="text-xs text-carbon/50">Pagado {pesos(resumen.data.pagadoCentavos)} · {(resumen.data.saldoCentavos ?? 0) > 0 ? `se le debe ${pesos(resumen.data.saldoCentavos)}` : (resumen.data.saldoCentavos ?? 0) < 0 ? `a favor ${pesos(-(resumen.data.saldoCentavos ?? 0))}` : 'al día'}{puede('caja') && <> · <Link className="underline" to={`/pagos?proveedor=${proveedorId}`}>cuenta corriente</Link></>}</div></div>}
         </div>
       )}
       {lista.isLoading ? <Cargando /> : lista.isError ? <ErrorCarga error={lista.error} /> : !lista.data!.length ? <Vacio>No hay pedidos con ese filtro.</Vacio> : (

@@ -5,6 +5,7 @@ import * as cp from '../../services/compras.js';
 import { ErrorNegocio } from '../../services/errores.js';
 import { tienePermiso } from '../../domain/permisos.js';
 import { filtrarCostos } from '../filtros.js';
+import { saldosProveedores } from '../../services/gastos.js';
 
 const idDe = (req: FastifyRequest) => {
   const n = Number((req.params as { id: string }).id);
@@ -65,6 +66,8 @@ export async function rutasCompras(app: FastifyInstance, { base, requiere, conId
   });
   app.get('/proveedores/:id/resumen', async (req) => {
     requiere(req, 'proveedores');
-    return filtrarCostos(req, cp.resumenProveedor(base.db, idDe(req)), IMPORTES);
+    const id = idDe(req);
+    const saldo = saldosProveedores(base.db, [id]).get(id) ?? { recibidoCentavos: 0, pagadoCentavos: 0, saldoCentavos: 0 };
+    return filtrarCostos(req, { ...cp.resumenProveedor(base.db, id), pagadoCentavos: saldo.pagadoCentavos, saldoCentavos: saldo.saldoCentavos }, IMPORTES);
   });
 }
