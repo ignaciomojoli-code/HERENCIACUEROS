@@ -1,10 +1,10 @@
 import { useState, type ReactNode } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { Archive, Boxes, CreditCard, HandCoins, Receipt, ShoppingBag, Wallet, ClipboardList, PackageCheck, BookOpen, Database, FileUp, Home, LogOut, Menu, Settings, ShieldCheck, Tag, Tags, Truck, User, Users, X } from 'lucide-react';
+import { Archive, Boxes, Calculator, Scissors, Sparkles, CreditCard, HandCoins, Receipt, ShoppingBag, Wallet, ClipboardList, PackageCheck, BookOpen, Database, FileUp, Home, LogOut, Menu, Settings, ShieldCheck, Tag, Tags, Truck, User, Users, X } from 'lucide-react';
 import { useSesion } from '../sesion';
 import { Logo } from './ui';
 
-type Item = { a: string; texto: string; icono: typeof Home; modulo?: string; accion?: 'crear' };
+type Item = { a: string; texto: string; icono: typeof Home; modulo?: string; accion?: 'crear'; requiere?: string };
 const SECCIONES: { titulo: string; items: Item[] }[] = [
   { titulo: '', items: [{ a: '/', texto: 'Inicio', icono: Home }] },
   { titulo: 'Ventas y plata', items: [
@@ -17,12 +17,17 @@ const SECCIONES: { titulo: string; items: Item[] }[] = [
   { titulo: 'Productos', items: [
     { a: '/catalogo', texto: 'Catálogo', icono: Tags, modulo: 'catalogo' },
     { a: '/precios', texto: 'Precios', icono: Tag, modulo: 'precios' },
+    { a: '/precios/sugeridos', texto: 'Precios sugeridos', icono: Sparkles, modulo: 'precios', requiere: 'costos' },
     { a: '/tablas', texto: 'Categorías, colores y talles', icono: BookOpen, modulo: 'catalogo' },
     { a: '/importar', texto: 'Importar planilla', icono: FileUp, modulo: 'importacion', accion: 'crear' },
   ] },
   { titulo: 'Stock', items: [
     { a: '/stock', texto: 'Stock', icono: Boxes, modulo: 'stock' },
     { a: '/conteos', texto: 'Conteos físicos', icono: ClipboardList, modulo: 'stock' },
+  ] },
+  { titulo: 'Producción', items: [
+    { a: '/materiales', texto: 'Materiales', icono: Scissors, modulo: 'materiales' },
+    { a: '/costeo', texto: 'Recetas y costeo', icono: Calculator, modulo: 'costos' },
   ] },
   { titulo: 'Compras', items: [
     { a: '/compras', texto: 'Pedidos y recepciones', icono: PackageCheck, modulo: 'compras' },
@@ -48,13 +53,13 @@ export function Marco({ children }: { children: ReactNode }) {
       <div className="px-6 pb-6 pt-7"><Logo claro chico /></div>
       <div className="flex-1 space-y-5 overflow-y-auto px-3">
         {SECCIONES.map((s) => {
-          const items = s.items.filter((i) => !i.modulo || puede(i.modulo, i.accion ?? 'ver'));
+          const items = s.items.filter((i) => (!i.modulo || puede(i.modulo, i.accion ?? 'ver')) && (!i.requiere || puede(i.requiere)));
           if (!items.length) return null;
           return (
             <div key={s.titulo}>
               {s.titulo && <div className="mb-1 px-3 text-[10px] font-medium uppercase tracking-etiqueta text-dorado/80">{s.titulo}</div>}
               {items.map((i) => (
-                <NavLink key={i.a} to={i.a} end={i.a === '/'}
+                <NavLink key={i.a} to={i.a} end={i.a === '/' || i.a === '/precios'}
                   className={({ isActive }) => `flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${isActive ? 'bg-marfil/10 text-marfil' : 'text-marfil/65 hover:bg-marfil/5 hover:text-marfil'}`}>
                   <i.icono className="h-4 w-4 text-dorado" />{i.texto}
                 </NavLink>

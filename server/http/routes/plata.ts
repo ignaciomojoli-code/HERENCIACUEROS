@@ -23,7 +23,7 @@ const motivo = z.object({ motivo: z.string() });
 /** Ganancia y costo de mercadería: solo para quien ve costos. */
 const GANANCIA = /^ganancia|^costoMercaderia/;
 
-async function enviarExport(reply: FastifyReply, formato: 'xlsx' | 'csv', nombre: string, columnas: ColumnaExport[], filas: Record<string, unknown>[]) {
+export async function enviarExport(reply: FastifyReply, formato: 'xlsx' | 'csv', nombre: string, columnas: ColumnaExport[], filas: Record<string, unknown>[]) {
   if (formato === 'csv') {
     reply.header('content-type', 'text/csv; charset=utf-8').header('content-disposition', `attachment; filename="${nombre}.csv"`);
     return aCsv(columnas, filas);

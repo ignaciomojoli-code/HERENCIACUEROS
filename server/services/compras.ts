@@ -3,6 +3,7 @@
  * Las recepciones de reventa actualizan el costo por promedio ponderado; las de confección (taller) no,
  * porque ahí se paga la mano de obra y el costo del producto se arma con materiales + confección.
  */
+import { consumirPorProduccion, revertirProduccion } from './costos.js';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { colores, compraItems, compras, historialCostos, modelos, movimientosStock, proveedores, recepciones, recepcionItems, talles, variantes } from '../db/schema.js';
 import type { DB } from '../db/index.js';
@@ -130,10 +131,13 @@ export function recibir(ctx: Ctx, compraId: number, d: DatosRecepcion) {
       costoUnitarioCentavos: c.tipo === 'reventa' ? costo : undefined, motivo: `Recepción R-${rec.numero} · pedido P-${c.numero}`,
     });
   }
+  const produccion = c.tipo === 'confeccion'
+    ? consumirPorProduccion(ctx, rec.id, rec.numero, d.fecha, lineas.map((l) => ({ varianteId: items.find((i) => i.id === l.compraItemId)!.varianteId, cantidad: l.cantidad })))
+    : null;
   const quedan = items.reduce((s, i) => s + i.cantidad - (recibido.get(i.id) ?? 0), 0) - lineas.reduce((s, l) => s + l.cantidad, 0);
   if (quedan === 0) ctx.db.update(compras).set({ estado: 'cerrada', actualizadoEn: t }).where(eq(compras.id, compraId)).run();
   auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'recibir', entidad: 'compra', entidadId: compraId, despues: { recepcion: rec.numero, items: lineas, cambiosCosto }, detalle: d.comprobante ? `Comprobante ${d.comprobante}` : undefined });
-  return { recepcionId: rec.id, numero: rec.numero, pedidoCerrado: quedan === 0, cambiosCosto };
+  return { recepcionId: rec.id, numero: rec.numero, pedidoCerrado: quedan === 0, cambiosCosto, produccion };
 }
 
 /** Costo promedio ponderado: (stock × costo actual + recibido × costo nuevo) / (stock + recibido). */
@@ -178,6 +182,7 @@ export function anularRecepcion(ctx: Ctx, recepcionId: number, motivo: string) {
       ctx.db.insert(historialCostos).values({ varianteId: v.id, anteriorCentavos: v.costoCentavos, nuevoCentavos: h.anteriorCentavos, fecha: t, usuarioId: ctx.usuarioId, origen: 'anulacion', motivo: `Anulación recepción R-${rec.numero}`, refTipo: 'anulacion_recepcion', refId: recepcionId }).run();
     } else revisar.push(v.sku);
   }
+  if (c.tipo === 'confeccion') revertirProduccion(ctx, recepcionId, motivo.trim());
   ctx.db.update(recepciones).set({ estado: 'anulada', motivoAnulacion: motivo.trim(), actualizadoEn: t }).where(eq(recepciones.id, recepcionId)).run();
   if (c.estado === 'cerrada') ctx.db.update(compras).set({ estado: 'confirmada', actualizadoEn: t }).where(eq(compras.id, c.id)).run();
   auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'anular', entidad: 'recepcion', entidadId: recepcionId, detalle: motivo, despues: { costosARevisar: revisar } });

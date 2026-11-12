@@ -257,11 +257,11 @@ function ModalRecepcion({ compra, onCerrar, onListo }: { compra: Compra; onCerra
   const editaCosto = puede('costos', 'modificar');
   const total = items.reduce((s, i) => s + (cant[i.id] ?? 0), 0);
   const guardar = useMutation({
-    mutationFn: () => api.post<{ numero: number; pedidoCerrado: boolean; cambiosCosto?: { sku: string }[] }>(`/compras/${compra.id}/recepciones`, {
+    mutationFn: () => api.post<{ numero: number; pedidoCerrado: boolean; cambiosCosto?: { sku: string }[]; produccion: { materiales: number; sinReceta: string[] } | null }>(`/compras/${compra.id}/recepciones`, {
       ...d, comprobante: d.comprobante || null, notas: d.notas || null,
       items: items.map((i) => ({ compraItemId: i.id, cantidad: cant[i.id] ?? 0, ...(editaCosto && costos[i.id] != null && costos[i.id] !== i.costoUnitarioCentavos ? { costoUnitarioCentavos: costos[i.id] } : {}) })),
     }, true),
-    onSuccess: (r) => { avisar(`Recepción R-${r.numero} registrada${r.cambiosCosto?.length ? ` · se actualizó el costo de ${r.cambiosCosto.length} productos` : ''}`); onListo(); onCerrar(); },
+    onSuccess: (r) => { avisar(`Recepción R-${r.numero} registrada${r.cambiosCosto?.length ? ` · se actualizó el costo de ${r.cambiosCosto.length} productos` : ''}${r.produccion ? (r.produccion.materiales ? ` · se descontaron ${r.produccion.materiales} materiales` : '') + (r.produccion.sinReceta.length ? ` · sin receta: ${r.produccion.sinReceta.join(', ')}` : '') : ''}`); onListo(); onCerrar(); },
     onError: avisarError,
   });
   return (
@@ -290,6 +290,7 @@ function ModalRecepcion({ compra, onCerrar, onListo }: { compra: Compra; onCerra
           <button className="text-conac underline" onClick={() => setCant(Object.fromEntries(items.map((i) => [i.id, i.pendiente])))}>Llegó todo</button>
           <button className="text-conac underline" onClick={() => setCant(Object.fromEntries(items.map((i) => [i.id, 0])))}>Poner todo en 0</button>
         </div>
+        {compra.tipo === 'confeccion' && <p className="text-xs text-carbon/55">Al recibir se descuentan del stock de materiales los que usa cada prenda según su receta.</p>}
         {compra.tipo === 'reventa' && <p className="text-xs text-carbon/55">Al recibir se recalcula el costo de cada producto por promedio ponderado (stock actual × costo actual + lo que llega × su costo).</p>}
         <Campo etiqueta="Notas"><input className="entrada" value={d.notas} onChange={(e) => setD({ ...d, notas: e.target.value })} /></Campo>
         <div className="flex justify-end gap-2">

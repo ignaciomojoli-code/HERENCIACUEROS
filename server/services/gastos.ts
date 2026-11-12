@@ -3,6 +3,7 @@
  * Cada uno descuenta la plata de una cuenta. Si lo pagó alguien de afuera (cuenta externa, ej. el inversor),
  * queda registrado como aporte + gasto. Los gastos personales no van acá: son retiros (módulo de caja).
  */
+import { comprasMaterialPorProveedor, ingresosMaterialDeProveedor } from './costos.js';
 import { and, asc, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import { categoriasGasto, compras, cuentas, gastos, movimientosCaja, pagosProveedor, proveedores } from '../db/schema.js';
@@ -201,9 +202,10 @@ export function saldosProveedores(db: DB, proveedorIds?: number[]) {
     select c.proveedor_id as p, coalesce(sum(ri.cantidad * ri.costo_unitario_centavos), 0) as s
     from recepcion_items ri join recepciones r on r.id = ri.recepcion_id join compras c on c.id = r.compra_id
     where r.estado = 'activa' and c.estado != 'anulada' group by c.proveedor_id`).filter((x) => !proveedorIds || proveedorIds.includes(x.p));
-  const ids = new Set([...pagado.map((x) => x.p), ...recibido.map((x) => x.p)]);
+  const mat = comprasMaterialPorProveedor(db).filter((x) => !proveedorIds || proveedorIds.includes(x.p));
+  const ids = new Set([...pagado.map((x) => x.p), ...recibido.map((x) => x.p), ...mat.map((x) => x.p)]);
   return new Map([...ids].map((id) => {
-    const r = Number(recibido.find((x) => x.p === id)?.s ?? 0);
+    const r = Number(recibido.find((x) => x.p === id)?.s ?? 0) + Number(mat.find((x) => x.p === id)?.s ?? 0);
     const pg = Number(pagado.find((x) => x.p === id)?.s ?? 0);
     return [id, { recibidoCentavos: r, pagadoCentavos: pg, saldoCentavos: r - pg }];
   }));
@@ -219,6 +221,9 @@ export function cuentaCorrienteProveedor(db: DB, proveedorId: number) {
   const pagos = listarPagos(db, { proveedorId });
   const lineas = [
     ...recs.map((r) => ({ fecha: r.fecha, orden: 0, tipo: 'recepcion' as const, refId: r.id, detalle: `Recepción R-${r.numero} · pedido P-${r.compra}`, debeCentavos: Number(r.importe), haberCentavos: 0 })),
+    ...ingresosMaterialDeProveedor(db, proveedorId).map((m) => ({ fecha: m.fecha, orden: 0, tipo: 'material' as const, refId: m.id,
+      detalle: `${m.tipo === 'anulacion' ? 'Anula compra de ' : 'Compra de '}${m.material} · ${Math.abs(m.cantidadMil) / 1000} ${m.unidad}${m.comprobante ? ' · ' + m.comprobante : ''}`,
+      debeCentavos: Math.max(0, m.importeCentavos), haberCentavos: Math.max(0, -m.importeCentavos) })),
     ...pagos.map((p) => ({ fecha: p.fecha, orden: 1, tipo: 'pago' as const, refId: p.id, detalle: `Pago PP-${p.numero} · ${p.cuenta}${p.notas ? ' · ' + p.notas : ''}`, debeCentavos: 0, haberCentavos: p.importeCentavos })),
   ].sort((a, b) => a.fecha.localeCompare(b.fecha) || a.orden - b.orden);
   let saldo = 0;

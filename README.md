@@ -2,7 +2,7 @@
 
 Sistema de gestión para Herencia Cuero (Malabia 48, Villa Crespo). Corre en la compu del local y se usa desde el navegador de esa compu o desde cualquier celular o tablet conectado al mismo Wi-Fi.
 
-## Qué incluye esta versión (entregas 1 a 3)
+## Qué incluye esta versión (entregas 1 a 4)
 
 - **Ingreso con usuario y contraseña**, roles y permisos por módulo y acción (ver, crear, modificar, aprobar, anular, exportar). Siete roles de partida; el de Administrador no se puede modificar.
 - **Catálogo**: productos con variantes por color y talle, código (SKU) y código de barras únicos, costo (vacío = pendiente), precios por lista (Efectivo / transferencia y Tarjeta), historial de costos y precios, duplicar, desactivar sin borrar, vista color × talle.
@@ -16,9 +16,13 @@ Sistema de gestión para Herencia Cuero (Malabia 48, Villa Crespo). Corre en la 
 - **Caja** (entrega 3): cuentas (efectivo, Mercado Pago, Cuenta DNI, tarjetas a liquidar, dólares, inversor externo) con saldo calculado de un libro de movimientos. Pases entre cuentas (también cambio de dólares), liquidaciones de tarjetas (la diferencia entre bruto y neto queda como comisión real), aportes, retiros personales (no cuentan como gasto) y arqueos (la diferencia queda como "diferencia de caja no identificada"). Formas de pago con su cuenta, lista de precios y comisión estimada, editables.
 - **Gastos** (entrega 3): con categorías y subcategorías editables. Si los paga el inversor externo, queda registrado como aporte suyo sin mover la plata del local.
 - **Pagos a proveedores** (entrega 3): pagos asociados o no a un pedido, y cuenta corriente por proveedor (entregado al costo del pedido menos pagado).
+- **Materiales** (entrega 4): cuero, forros, avíos y mano de obra con costo (vacío = pendiente) e historial. Stock en metros/unidades por movimientos: compras (el costo pasa a promedio ponderado y el importe suma a la cuenta corriente del proveedor), ajustes, stock inicial y anulaciones. Aviso de reposición por mínimo o negativo.
+- **Recetas y costeo** (entrega 4): qué lleva cada modelo, con agregados por talle (ej. cuero extra en 7 y 8). Calcula el costo de cada prenda (materiales + mano de obra + otros costos configurables: monto fijo, % sobre costo o % sobre precio) y lo compara con el cargado. Solo se aplica lo elegido, con motivo, y no se aplica si falta el costo de algún material.
+- **Precios sugeridos** (entrega 4): precio que deja el margen o markup buscado, descontando los % sobre el precio, con el margen que deja hoy cada prenda. Publicar requiere permiso de aprobación, motivo, y se rechaza si el precio cambió mientras se miraba.
+- **Producción** (entrega 4): al recibir prendas del taller se descuentan los materiales de su receta; si se anula la recepción, vuelven.
 - Identidad del Manual de marca 2026: Playfair Display + Jost, negro carbón, marfil, crema, dorado arena, bordó y coñac. El rojo oferta queda reservado a ofertas.
 
-Próximas entregas: costos, producción y formación de precios · panel, reportes y alertas.
+Próxima entrega: panel, reportes y alertas.
 
 ## Instalación en la compu del local (Windows)
 

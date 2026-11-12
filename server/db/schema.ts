@@ -515,3 +515,73 @@ export const pagosProveedor = sqliteTable('pagos_proveedor', {
   creadoEn: creadoEn(),
   actualizadoEn: actualizadoEn(),
 }, (t) => [index('pagos_proveedor_prov_idx').on(t.proveedorId)]);
+
+// ───────────────────────── Costos y producción ─────────────────────────
+
+/**
+ * Materiales e insumos (cuero, forro, cierres, avíos) y la mano de obra del taller.
+ * Las cantidades se guardan en MILÉSIMAS de la unidad (1 m de cuero = 1000) para no usar decimales.
+ * El costo es por unidad entera (por metro, por cierre…).
+ */
+export const materiales = sqliteTable('materiales', {
+  id: id(),
+  codigo: text('codigo').notNull().unique(),
+  nombre: text('nombre').notNull(),
+  unidad: text('unidad', { enum: ['m', 'u', 'par', 'kg'] }).notNull().default('u'),
+  tipo: text('tipo', { enum: ['material', 'mano_obra'] }).notNull().default('material'),
+  /** Costo por unidad en centavos. null = pendiente. */
+  costoCentavos: integer('costo_centavos'),
+  proveedorId: integer('proveedor_id').references(() => proveedores.id),
+  stockMinimoMil: integer('stock_minimo_mil'),
+  notas: text('notas'),
+  activo: activo(),
+  esDemo: esDemo(),
+  creadoEn: creadoEn(),
+  actualizadoEn: actualizadoEn(),
+});
+
+export const historialCostosMaterial = sqliteTable('historial_costos_material', {
+  id: id(),
+  materialId: integer('material_id').notNull().references(() => materiales.id),
+  anteriorCentavos: integer('anterior_centavos'),
+  nuevoCentavos: integer('nuevo_centavos'),
+  fecha: text('fecha').notNull(),
+  usuarioId: integer('usuario_id').references(() => usuarios.id),
+  origen: text('origen').notNull(),
+  motivo: text('motivo'),
+  refTipo: text('ref_tipo'),
+  refId: integer('ref_id'),
+}, (t) => [index('hist_costo_material_idx').on(t.materialId)]);
+
+/** Libro de movimientos de materiales (en milésimas). Solo se agregan filas. */
+export const movimientosMaterial = sqliteTable('movimientos_material', {
+  id: id(),
+  fecha: text('fecha').notNull(),
+  materialId: integer('material_id').notNull().references(() => materiales.id),
+  cantidadMil: integer('cantidad_mil').notNull(),
+  tipo: text('tipo', { enum: ['inicial', 'compra', 'ajuste', 'produccion', 'anulacion'] }).notNull(),
+  costoUnitarioCentavos: integer('costo_unitario_centavos'),
+  /** Para compras de material: a quién se le compró (suma a su cuenta corriente). */
+  proveedorId: integer('proveedor_id').references(() => proveedores.id),
+  comprobante: text('comprobante'),
+  refTipo: text('ref_tipo'),
+  refId: integer('ref_id'),
+  anulaId: integer('anula_id'),
+  motivo: text('motivo'),
+  usuarioId: integer('usuario_id').references(() => usuarios.id),
+  creadoEn: creadoEn(),
+}, (t) => [index('mov_material_idx').on(t.materialId), index('mov_material_ref_idx').on(t.refTipo, t.refId)]);
+
+/**
+ * Receta (lista de materiales) de un modelo. `talles` = null aplica a todos los talles;
+ * con una lista (ej. ["7","8"]) es un agregado solo para esos talles (ej. cuero extra en talles grandes).
+ */
+export const recetaItems = sqliteTable('receta_items', {
+  id: id(),
+  modeloId: integer('modelo_id').notNull().references(() => modelos.id),
+  materialId: integer('material_id').notNull().references(() => materiales.id),
+  cantidadMil: integer('cantidad_mil').notNull(),
+  talles: text('talles', { mode: 'json' }).$type<string[] | null>(),
+  notas: text('notas'),
+  orden: integer('orden').notNull().default(0),
+}, (t) => [index('receta_modelo_idx').on(t.modeloId)]);
