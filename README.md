@@ -2,7 +2,7 @@
 
 Sistema de gestión para Herencia Cuero (Malabia 48, Villa Crespo). Corre en la compu del local y se usa desde el navegador de esa compu o desde cualquier celular o tablet conectado al mismo Wi-Fi.
 
-## Qué incluye esta versión (entrega 1)
+## Qué incluye esta versión (entregas 1 y 2)
 
 - **Ingreso con usuario y contraseña**, roles y permisos por módulo y acción (ver, crear, modificar, aprobar, anular, exportar). Siete roles de partida; el de Administrador no se puede modificar.
 - **Catálogo**: productos con variantes por color y talle, código (SKU) y código de barras únicos, costo (vacío = pendiente), precios por lista (Efectivo / transferencia y Tarjeta), historial de costos y precios, duplicar, desactivar sin borrar, vista color × talle.
@@ -10,9 +10,11 @@ Sistema de gestión para Herencia Cuero (Malabia 48, Villa Crespo). Corre en la 
 - **Importar planilla** (.xlsx o .csv): detecta la fila de títulos, sugiere las columnas, muestra fila por fila qué va a pasar (nuevo, cambia, igual, duplicada, error) y solo actualiza lo existente si se tilda explícitamente. Todo en una transacción.
 - **Exportar** catálogo a Excel o CSV eligiendo columnas (los costos solo salen para roles que pueden verlos).
 - **Proveedores**, **configuración** (lo desconocido queda "pendiente"), **auditoría** de cada cambio con antes y después, **copias de seguridad** automáticas cada N horas con retención, descarga y restauración (con copia previa automática).
+- **Stock por movimientos** (entrega 2): el stock es la suma de un libro de movimientos que no se edita ni se borra. Ajustes con motivo, conteos físicos desde el celular (con lector de código de barras) que ajustan solo lo contado, carga de stock inicial desde planilla, alertas de bajo mínimo y negativos, valorización al costo y a precio, exportación.
+- **Compras** (entrega 2): pedidos a proveedores (reventa) y al taller (confección), recepciones parciales con remito, cierre con pendientes, anulación de recepciones con movimientos contrarios. En reventa el costo se actualiza por promedio ponderado; en confección entra stock sin pisar el costo (el costo completo llega con el módulo de producción). Los pagos a proveedores llegan con el módulo de caja.
 - Identidad del Manual de marca 2026: Playfair Display + Jost, negro carbón, marfil, crema, dorado arena, bordó y coñac. El rojo oferta queda reservado a ofertas.
 
-Próximas entregas: stock y compras · ventas, cobros y caja · costos, producción y formación de precios · panel, reportes y alertas.
+Próximas entregas: ventas, cobros y caja (con pagos a proveedores) · costos, producción y formación de precios · panel, reportes y alertas.
 
 ## Instalación en la compu del local (Windows)
 

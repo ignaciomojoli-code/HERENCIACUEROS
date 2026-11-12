@@ -13,6 +13,7 @@ import { auditar } from './auditoria.js';
 import { ErrorNegocio, noEncontrado } from './errores.js';
 import { normalizarClave, normalizarSku, prolijo } from '../domain/texto.js';
 import { aplicarAjuste, redondearPrecio } from '../domain/dinero.js';
+import { stockDe } from './stock.js';
 
 type Ctx = { db: DB; usuarioId: number | null };
 
@@ -97,6 +98,7 @@ export function listarModelos(db: DB, f: FiltroModelos = {}) {
       costoMin: sql<number | null>`(select min(v.costo_centavos) from variantes v where v.modelo_id = ${modelos.id} and v.activo = 1)`,
       costoMax: sql<number | null>`(select max(v.costo_centavos) from variantes v where v.modelo_id = ${modelos.id} and v.activo = 1)`,
       sinCosto: sql<number>`(select count(*) from variantes v where v.modelo_id = ${modelos.id} and v.activo = 1 and v.costo_centavos is null)`,
+      stock: sql<number>`(select coalesce(sum(ms.cantidad), 0) from movimientos_stock ms join variantes v on v.id = ms.variante_id where v.modelo_id = ${modelos.id} and v.activo = 1)`,
     })
     .from(modelos)
     .innerJoin(categorias, eq(categorias.id, modelos.categoriaId))
@@ -133,12 +135,13 @@ export function obtenerModelo(db: DB, id: number) {
     .sort((a, b) => (a.color ?? '').localeCompare(b.color ?? '') || (a.ordenTalle ?? 0) - (b.ordenTalle ?? 0));
   const vIds = vs.map((x) => x.v.id);
   const ps = vIds.length ? db.select().from(precios).where(inArray(precios.varianteId, vIds)).all() : [];
+  const stock = stockDe(db, vIds);
   const hc = vIds.length ? db.select().from(historialCostos).where(inArray(historialCostos.varianteId, vIds)).orderBy(sql`${historialCostos.fecha} desc`).limit(200).all() : [];
   const hp = vIds.length ? db.select().from(historialPrecios).where(inArray(historialPrecios.varianteId, vIds)).orderBy(sql`${historialPrecios.fecha} desc`).limit(200).all() : [];
   return {
     ...m,
     variantes: vs.map((x) => ({
-      ...x.v, color: x.color, talle: x.talle,
+      ...x.v, color: x.color, talle: x.talle, stock: stock.get(x.v.id) ?? 0,
       precios: Object.fromEntries(ps.filter((p) => p.varianteId === x.v.id).map((p) => [p.listaId, p.precioCentavos])),
     })),
     historialCostos: hc,

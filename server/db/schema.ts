@@ -205,6 +205,9 @@ export const historialCostos = sqliteTable('historial_costos', {
   usuarioId: integer('usuario_id').references(() => usuarios.id),
   origen: text('origen').notNull(),
   motivo: text('motivo'),
+  /** Documento que originó el cambio (ej. 'recepcion', 12), para poder revertirlo al anular. */
+  refTipo: text('ref_tipo'),
+  refId: integer('ref_id'),
 }, (t) => [index('historial_costos_variante_idx').on(t.varianteId)]);
 
 // ───────────────────────── Precios ─────────────────────────
@@ -244,3 +247,104 @@ export const historialPrecios = sqliteTable('historial_precios', {
   origen: text('origen').notNull(),
   motivo: text('motivo'),
 }, (t) => [index('historial_precios_variante_idx').on(t.varianteId)]);
+
+// ───────────────────────── Stock ─────────────────────────
+
+/**
+ * Libro de movimientos de stock. Solo se agregan filas: nunca se modifican ni se borran.
+ * El stock de una variante es la suma de sus movimientos. Anular algo agrega el movimiento contrario.
+ */
+export const movimientosStock = sqliteTable('movimientos_stock', {
+  id: id(),
+  fecha: text('fecha').notNull(),
+  varianteId: integer('variante_id').notNull().references(() => variantes.id),
+  /** Positivo entra, negativo sale. */
+  cantidad: integer('cantidad').notNull(),
+  tipo: text('tipo', { enum: ['inicial', 'compra', 'ajuste', 'conteo', 'venta', 'devolucion', 'produccion', 'anulacion'] }).notNull(),
+  /** Costo unitario al momento del movimiento (para valorizar). */
+  costoUnitarioCentavos: integer('costo_unitario_centavos'),
+  refTipo: text('ref_tipo'),
+  refId: integer('ref_id'),
+  /** Si este movimiento compensa a otro (anulación), cuál. */
+  anulaId: integer('anula_id'),
+  motivo: text('motivo'),
+  usuarioId: integer('usuario_id').references(() => usuarios.id),
+  creadoEn: creadoEn(),
+}, (t) => [index('mov_stock_variante_idx').on(t.varianteId), index('mov_stock_fecha_idx').on(t.fecha), index('mov_stock_ref_idx').on(t.refTipo, t.refId)]);
+
+/** Conteo físico de inventario: se carga lo contado y al aplicarlo se generan los ajustes. */
+export const conteos = sqliteTable('conteos', {
+  id: id(),
+  numero: integer('numero').notNull().unique(),
+  fecha: text('fecha').notNull(),
+  categoriaId: integer('categoria_id').references(() => categorias.id),
+  estado: text('estado', { enum: ['abierto', 'aplicado', 'descartado'] }).notNull().default('abierto'),
+  notas: text('notas'),
+  usuarioId: integer('usuario_id').references(() => usuarios.id),
+  aplicadoEn: text('aplicado_en'),
+  aplicadoPor: integer('aplicado_por').references(() => usuarios.id),
+  creadoEn: creadoEn(),
+  actualizadoEn: actualizadoEn(),
+});
+export const conteoItems = sqliteTable('conteo_items', {
+  id: id(),
+  conteoId: integer('conteo_id').notNull().references(() => conteos.id),
+  varianteId: integer('variante_id').notNull().references(() => variantes.id),
+  contado: integer('contado').notNull(),
+  /** Stock del sistema al aplicar (se guarda para que la diferencia quede documentada). */
+  esperado: integer('esperado'),
+  actualizadoEn: actualizadoEn(),
+}, (t) => [uniqueIndex('conteo_items_uq').on(t.conteoId, t.varianteId)]);
+
+// ───────────────────────── Compras ─────────────────────────
+
+/**
+ * Pedido a un proveedor o taller. 'reventa' = se compra el producto terminado (su costo actualiza el costo promedio).
+ * 'confeccion' = se paga la mano de obra a un taller (ej. Laura): entra stock, pero el costo del producto
+ * sale de materiales + confección (módulo de producción), así que no pisa el costo.
+ */
+export const compras = sqliteTable('compras', {
+  id: id(),
+  numero: integer('numero').notNull().unique(),
+  proveedorId: integer('proveedor_id').notNull().references(() => proveedores.id),
+  tipo: text('tipo', { enum: ['reventa', 'confeccion'] }).notNull().default('reventa'),
+  fecha: text('fecha').notNull(),
+  fechaEsperada: text('fecha_esperada'),
+  estado: text('estado', { enum: ['borrador', 'confirmada', 'cerrada', 'anulada'] }).notNull().default('borrador'),
+  notas: text('notas'),
+  usuarioId: integer('usuario_id').references(() => usuarios.id),
+  esDemo: esDemo(),
+  creadoEn: creadoEn(),
+  actualizadoEn: actualizadoEn(),
+}, (t) => [index('compras_proveedor_idx').on(t.proveedorId)]);
+export const compraItems = sqliteTable('compra_items', {
+  id: id(),
+  compraId: integer('compra_id').notNull().references(() => compras.id),
+  varianteId: integer('variante_id').notNull().references(() => variantes.id),
+  cantidad: integer('cantidad').notNull(),
+  costoUnitarioCentavos: integer('costo_unitario_centavos').notNull(),
+  notas: text('notas'),
+}, (t) => [index('compra_items_compra_idx').on(t.compraId)]);
+
+/** Lo que efectivamente entregó el proveedor (puede ser una parte del pedido). Suma stock. */
+export const recepciones = sqliteTable('recepciones', {
+  id: id(),
+  numero: integer('numero').notNull().unique(),
+  compraId: integer('compra_id').notNull().references(() => compras.id),
+  fecha: text('fecha').notNull(),
+  comprobante: text('comprobante'),
+  notas: text('notas'),
+  estado: text('estado', { enum: ['activa', 'anulada'] }).notNull().default('activa'),
+  motivoAnulacion: text('motivo_anulacion'),
+  usuarioId: integer('usuario_id').references(() => usuarios.id),
+  creadoEn: creadoEn(),
+  actualizadoEn: actualizadoEn(),
+});
+export const recepcionItems = sqliteTable('recepcion_items', {
+  id: id(),
+  recepcionId: integer('recepcion_id').notNull().references(() => recepciones.id),
+  compraItemId: integer('compra_item_id').notNull().references(() => compraItems.id),
+  varianteId: integer('variante_id').notNull().references(() => variantes.id),
+  cantidad: integer('cantidad').notNull(),
+  costoUnitarioCentavos: integer('costo_unitario_centavos').notNull(),
+}, (t) => [index('recepcion_items_rec_idx').on(t.recepcionId)]);

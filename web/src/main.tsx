@@ -22,6 +22,11 @@ import { PaginaAuditoria } from './paginas/Auditoria';
 import { PaginaBackups } from './paginas/Backups';
 import { PaginaMiCuenta } from './paginas/MiCuenta';
 import { PaginaTablas } from './paginas/Tablas';
+import { PaginaStock } from './paginas/Stock';
+import { PaginaMovimientos } from './paginas/Movimientos';
+import { PaginaConteo, PaginaConteos } from './paginas/Conteos';
+import { PaginaStockInicial } from './paginas/StockInicial';
+import { PaginaCompra, PaginaCompraForm, PaginaCompras } from './paginas/Compras';
 
 const cliente = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 15_000, refetchOnWindowFocus: false } } });
 
@@ -60,6 +65,15 @@ function App() {
           {puede('precios') && <Route path="/precios" element={<PaginaPrecios />} />}
           {puede('importacion', 'crear') && <Route path="/importar" element={<PaginaImportar />} />}
           {puede('proveedores') && <Route path="/proveedores" element={<PaginaProveedores />} />}
+          {puede('stock') && <Route path="/stock" element={<PaginaStock />} />}
+          {puede('stock') && <Route path="/stock/movimientos" element={<PaginaMovimientos />} />}
+          {puede('stock', 'aprobar') && <Route path="/stock/inicial" element={<PaginaStockInicial />} />}
+          {puede('stock') && <Route path="/conteos" element={<PaginaConteos />} />}
+          {puede('stock') && <Route path="/conteos/:id" element={<PaginaConteo />} />}
+          {puede('compras') && <Route path="/compras" element={<PaginaCompras />} />}
+          {puede('compras', 'crear') && <Route path="/compras/nuevo" element={<PaginaCompraForm />} />}
+          {puede('compras') && <Route path="/compras/:id" element={<PaginaCompra />} />}
+          {puede('compras', 'modificar') && <Route path="/compras/:id/editar" element={<PaginaCompraForm />} />}
           {puede('usuarios') && <Route path="/usuarios" element={<PaginaUsuarios />} />}
           {puede('configuracion') && <Route path="/configuracion" element={<PaginaConfiguracion />} />}
           {puede('auditoria') && <Route path="/auditoria" element={<PaginaAuditoria />} />}

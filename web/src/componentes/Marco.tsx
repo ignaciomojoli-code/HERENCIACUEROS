@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { Archive, BookOpen, Database, FileUp, Home, LogOut, Menu, Settings, ShieldCheck, Tag, Tags, Truck, User, Users, X } from 'lucide-react';
+import { Archive, Boxes, ClipboardList, PackageCheck, BookOpen, Database, FileUp, Home, LogOut, Menu, Settings, ShieldCheck, Tag, Tags, Truck, User, Users, X } from 'lucide-react';
 import { useSesion } from '../sesion';
 import { Logo } from './ui';
 
@@ -13,7 +13,14 @@ const SECCIONES: { titulo: string; items: Item[] }[] = [
     { a: '/tablas', texto: 'Categorías, colores y talles', icono: BookOpen, modulo: 'catalogo' },
     { a: '/importar', texto: 'Importar planilla', icono: FileUp, modulo: 'importacion', accion: 'crear' },
   ] },
-  { titulo: 'Compras', items: [{ a: '/proveedores', texto: 'Proveedores', icono: Truck, modulo: 'proveedores' }] },
+  { titulo: 'Stock', items: [
+    { a: '/stock', texto: 'Stock', icono: Boxes, modulo: 'stock' },
+    { a: '/conteos', texto: 'Conteos físicos', icono: ClipboardList, modulo: 'stock' },
+  ] },
+  { titulo: 'Compras', items: [
+    { a: '/compras', texto: 'Pedidos y recepciones', icono: PackageCheck, modulo: 'compras' },
+    { a: '/proveedores', texto: 'Proveedores', icono: Truck, modulo: 'proveedores' },
+  ] },
   { titulo: 'Sistema', items: [
     { a: '/usuarios', texto: 'Usuarios y roles', icono: Users, modulo: 'usuarios' },
     { a: '/configuracion', texto: 'Configuración', icono: Settings, modulo: 'configuracion' },
@@ -49,7 +56,7 @@ export function Marco({ children }: { children: ReactNode }) {
           );
         })}
         <div className="px-3 pt-2 text-[11px] leading-relaxed text-marfil/35">
-          Próximas entregas: stock y compras, ventas y caja, costos y producción, panel y reportes.
+          Próximas entregas: ventas y caja, costos y producción, panel y reportes.
         </div>
       </div>
       <div className="border-t border-marfil/10 p-3">

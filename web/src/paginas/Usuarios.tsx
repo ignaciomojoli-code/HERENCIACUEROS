@@ -9,7 +9,7 @@ import { fechaHora } from '../formato';
 
 interface UsuarioFila { id: number; usuario: string; nombre: string; rolId: number; rol?: string; activo: boolean; ultimoLogin: string | null; debeCambiarPassword: boolean }
 interface Rol { id: number; nombre: string; descripcion: string; permisos: Permisos; esSistema: boolean }
-const NOMBRES_MODULO: Record<string, string> = { panel: 'Panel', catalogo: 'Catálogo', costos: 'Costos', precios: 'Precios', proveedores: 'Proveedores', importacion: 'Importación', usuarios: 'Usuarios', configuracion: 'Configuración', auditoria: 'Auditoría', backups: 'Copias de seguridad' };
+const NOMBRES_MODULO: Record<string, string> = { panel: 'Panel', catalogo: 'Catálogo', costos: 'Costos', precios: 'Precios', proveedores: 'Proveedores', stock: 'Stock', compras: 'Compras', importacion: 'Importación', usuarios: 'Usuarios', configuracion: 'Configuración', auditoria: 'Auditoría', backups: 'Copias de seguridad' };
 
 export function PaginaUsuarios() {
   const { puede, usuario: yo } = useSesion();
