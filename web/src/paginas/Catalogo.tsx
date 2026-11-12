@@ -62,7 +62,7 @@ export function PaginaCatalogo() {
             <Link key={m.id} to={`/catalogo/${m.id}`} className="tarjeta block p-3">
               <div className="flex items-baseline justify-between gap-2">
                 <span className="font-medium">{m.nombre} {m.esDemo && <Demo />}</span>
-                <span className="text-xs text-carbon/50">{m.variantes} var.</span>
+                <span className="text-xs text-carbon/50">{m.variantes} var.{m.stock !== undefined && ` · stock ${m.stock}`}</span>
               </div>
               <div className="text-xs text-carbon/50">{[m.categoria, m.genero, m.proveedor].filter(Boolean).join(' · ')}{!m.activo && ' · Inactivo'}</div>
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
@@ -76,7 +76,7 @@ export function PaginaCatalogo() {
           <table className="tabla">
             <thead>
               <tr>
-                <th>Producto</th><th className="hidden md:table-cell">Categoría</th><th className="num">Var.</th>
+                <th>Producto</th><th className="hidden md:table-cell">Categoría</th><th className="num">Var.</th>{puede('stock') && <th className="num">Stock</th>}
                 {verCostos && <th className="num hidden sm:table-cell">Costo</th>}
                 {listas.map((l) => <th key={l.id} className="num">{l.nombre}</th>)}
                 <th className="hidden md:table-cell">Estado</th>
@@ -91,6 +91,7 @@ export function PaginaCatalogo() {
                   </td>
                   <td className="hidden md:table-cell">{m.categoria}</td>
                   <td className="num">{m.variantes}</td>
+                  {puede('stock') && <td className={`num font-medium ${(m.stock ?? 0) <= 0 ? 'text-carbon/35' : ''}`}>{m.stock ?? 0}</td>}
                   {verCostos && <td className="num hidden sm:table-cell">{m.sinCosto ? <Pendiente texto={m.sinCosto === m.variantes ? 'Sin costo' : `${m.sinCosto} sin costo`} /> : rango(m.costoMin, m.costoMax)}</td>}
                   {listas.map((l) => {
                     const p = m.precios.find((x) => x.listaId === l.id);

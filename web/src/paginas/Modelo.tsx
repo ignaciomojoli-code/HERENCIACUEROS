@@ -9,6 +9,7 @@ import { Aviso, Campo, Cargando, Confirmar, Demo, Encabezado, ErrorCarga, Estado
 import { Importe } from '../componentes/Importe';
 import { aproxUsd, fechaHora, pct, pesos } from '../formato';
 import { FormModelo, type DatosModeloForm } from './ModeloNuevo';
+import { ModalKardex } from '../componentes/StockModales';
 
 /** Margen y markup se calculan y muestran por separado (nunca se mezclan). */
 export function analisis(precio: number | null | undefined, costo: number | null | undefined) {
@@ -29,6 +30,7 @@ export function PaginaModelo() {
   const [duplicar, setDuplicar] = useState(false);
   const [estado, setEstado] = useState<{ tipo: 'modelo' | 'variante'; id: number; activo: boolean } | null>(null);
   const [vista, setVista] = useState<'lista' | 'grilla' | 'historial'>('lista');
+  const [kardex, setKardex] = useState<number | null>(null);
   const refrescar = () => { qc.invalidateQueries({ queryKey: ['modelo', id] }); qc.invalidateQueries({ queryKey: ['modelos'] }); };
 
   const guardarModelo = useMutation({
@@ -48,6 +50,7 @@ export function PaginaModelo() {
   const a = aux.data!;
   const listas = a.listasPrecio.filter((l) => l.activo);
   const verCostos = puede('costos');
+  const verStock = puede('stock');
   const cat = a.categorias.find((c) => c.id === m.categoriaId)?.nombre;
   const sub = a.categorias.find((c) => c.id === m.subcategoriaId)?.nombre;
   const prov = a.proveedores.find((p) => p.id === m.proveedorId)?.nombre;
@@ -85,6 +88,7 @@ export function PaginaModelo() {
                 </div>
                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
                   {listas.map((l) => <span key={l.id}><span className="text-xs text-carbon/50">{l.nombre}: </span><b className="font-titulo">{pesos(v.precios[l.id])}</b></span>)}
+                  {verStock && <span><span className="text-xs text-carbon/50">Stock: </span><b>{v.stock ?? 0}</b></span>}
                   {verCostos && <span><span className="text-xs text-carbon/50">Costo: </span>{costoTotal == null ? <Pendiente /> : pesos(costoTotal)}</span>}
                 </div>
                 {!v.activo && <div className="mt-1"><Estado activo={false} /></div>}
@@ -98,6 +102,7 @@ export function PaginaModelo() {
           <table className="tabla">
             <thead><tr>
               <th>Código</th><th>Color</th><th>Talle</th>
+              {verStock && <th className="num">Stock</th>}
               {verCostos && <th className="num">Costo</th>}
               {listas.map((l) => <th key={l.id} className="num">{l.nombre}</th>)}
               <th>Estado</th><th />
@@ -109,6 +114,7 @@ export function PaginaModelo() {
                   <tr key={v.id} className={v.activo ? '' : 'opacity-50'}>
                     <td className="font-medium">{v.sku} {v.esDemo && <Demo />}</td>
                     <td>{v.color ?? '—'}</td><td>{v.talle ?? '—'}</td>
+                    {verStock && <td className="num"><button className={`font-titulo font-bold hover:underline ${(v.stock ?? 0) <= 0 ? 'text-carbon/35' : ''}`} onClick={() => setKardex(v.id)}>{v.stock ?? 0}</button></td>}
                     {verCostos && <td className="num">{costoTotal == null ? <Pendiente /> : pesos(costoTotal)}</td>}
                     {listas.map((l) => {
                       const p = v.precios[l.id];
@@ -142,6 +148,7 @@ export function PaginaModelo() {
           <FormModelo inicial={m} aux={a} ocupado={guardarModelo.isPending} onGuardar={(d) => guardarModelo.mutate(d)} onCancelar={() => setEditarModelo(false)} />
         </Modal>
       )}
+      {kardex && <ModalKardex varianteId={kardex} onCerrar={() => { setKardex(null); refrescar(); }} />}
       {variante && <ModalVariante modelo={m} aux={a} inicial={variante} onCerrar={() => setVariante(null)} onGuardado={refrescar} />}
       {duplicar && <ModalDuplicar m={m} onCerrar={() => setDuplicar(false)} onListo={(nid) => { refrescar(); nav(`/catalogo/${nid}`); }} />}
       {estado && (
@@ -176,7 +183,7 @@ function Grilla({ m, aux, onElegir }: { m: Modelo; aux: Aux; onElegir: (v: Parti
                   <td key={t.id} className="p-1 text-center">
                     {v ? (
                       <button onClick={() => onElegir(v)} className={`w-full rounded border px-2 py-1.5 text-xs ${v.activo ? 'border-dorado/60 bg-marfil hover:border-carbon' : 'border-arena text-carbon/40'}`}>
-                        <div className="font-medium">{v.sku}</div>
+                        <div className="font-medium">{v.sku}{v.stock !== undefined && <span className={`ml-1 ${v.stock > 0 ? 'text-carbon' : 'text-carbon/35'}`}>· {v.stock}</span>}</div>
                         {primeraLista && v.precios[primeraLista.id] != null && <div className="text-carbon/60">{pesos(v.precios[primeraLista.id])}</div>}
                       </button>
                     ) : m.activo ? (

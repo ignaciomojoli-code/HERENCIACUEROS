@@ -8,6 +8,7 @@ import { auditar } from '../../services/auditoria.js';
 import { ahora } from '../../services/tiempo.js';
 import { ErrorNegocio, noEncontrado } from '../../services/errores.js';
 import { tienePermiso } from '../../domain/permisos.js';
+import { filtrarCostos } from '../filtros.js';
 import { normalizarClave, prolijo } from '../../domain/texto.js';
 import { aCsv, aXlsx, columnasCatalogo, filasCatalogo } from '../../services/exportar.js';
 
@@ -48,24 +49,14 @@ const esquemaVariante = z.object({
 
 type ConCostos = { costoCentavos?: unknown; costoLogisticoCentavos?: unknown; costoAdicionalCentavos?: unknown };
 
+/** El stock se muestra solo a quien tiene permiso de ver stock. */
+function sinStock<T>(req: FastifyRequest, data: T): T {
+  if (tienePermiso(req.usuario!.permisos, 'stock', 'ver')) return data;
+  const limpiar = (o: unknown): unknown => Array.isArray(o) ? o.map(limpiar) : o && typeof o === 'object' ? Object.fromEntries(Object.entries(o).filter(([k]) => k !== 'stock').map(([k, v]) => [k, limpiar(v)])) : o;
+  return limpiar(data) as T;
+}
+
 export async function rutasCatalogo(app: FastifyInstance, { base, requiere, conIdempotencia }: Api) {
-  /** Si el rol no puede ver costos, se quitan de la respuesta (no solo se ocultan en pantalla). */
-  const filtrarCostos = <T>(req: FastifyRequest, data: T): T => {
-    if (tienePermiso(req.usuario!.permisos, 'costos', 'ver')) return data;
-    const limpiar = (o: unknown): unknown => {
-      if (Array.isArray(o)) return o.map(limpiar);
-      if (o && typeof o === 'object') {
-        const r: Record<string, unknown> = {};
-        for (const [k, v] of Object.entries(o)) {
-          if (/^costo|historialCostos|sinCosto/.test(k)) continue;
-          r[k] = limpiar(v);
-        }
-        return r;
-      }
-      return o;
-    };
-    return limpiar(data) as T;
-  };
   const ctx = (req: FastifyRequest, db = base.db) => ({ db, usuarioId: req.usuario!.id });
 
   app.get('/catalogo/aux', async (req) => { requiere(req, 'catalogo'); return cat.listarAuxiliares(base.db); });
@@ -136,9 +127,9 @@ export async function rutasCatalogo(app: FastifyInstance, { base, requiere, conI
   app.get('/catalogo/modelos', async (req) => {
     requiere(req, 'catalogo');
     const q = z.object({ q: z.string().optional(), categoriaId: z.coerce.number().int().optional(), estado: z.enum(['activos', 'inactivos', 'todos']).default('activos') }).parse(req.query);
-    return filtrarCostos(req, cat.listarModelos(base.db, q));
+    return sinStock(req, filtrarCostos(req, cat.listarModelos(base.db, q)));
   });
-  app.get('/catalogo/modelos/:id', async (req) => { requiere(req, 'catalogo'); return filtrarCostos(req, cat.obtenerModelo(base.db, idParam(req))); });
+  app.get('/catalogo/modelos/:id', async (req) => { requiere(req, 'catalogo'); return sinStock(req, filtrarCostos(req, cat.obtenerModelo(base.db, idParam(req)))); });
 
   app.post('/catalogo/modelos', async (req, reply) => {
     requiere(req, 'catalogo', 'crear');

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { api } from '../api';
@@ -47,7 +48,10 @@ export function PaginaProveedores() {
                   <td>{[p.contacto, p.telefono].filter(Boolean).join(' · ') || <Pendiente />}</td>
                   <td className="hidden md:table-cell">{p.cuit ?? <Pendiente />}</td>
                   <td><Estado activo={p.activo} /></td>
-                  <td className="text-right">{puede('proveedores', 'modificar') && <button className="btn-secundario btn-chico" onClick={() => setEditar(p)}>Editar</button>}</td>
+                  <td className="whitespace-nowrap text-right">
+                    {puede('compras') && <Link className="btn-secundario btn-chico mr-1" to={`/compras?proveedor=${p.id}&estado=todos`}>Compras</Link>}
+                    {puede('proveedores', 'modificar') && <button className="btn-secundario btn-chico" onClick={() => setEditar(p)}>Editar</button>}
+                  </td>
                 </tr>
               ))}
             </tbody>
