@@ -4,7 +4,8 @@ import { api } from '../api';
 import { useSesion } from '../sesion';
 import type { ModeloResumen } from '../tipos';
 import { Aviso, Encabezado } from '../componentes/ui';
-import { fechaHora } from '../formato';
+import { fechaHora, pesos } from '../formato';
+import { inicioMes, hoy, useCuentas } from '../plata';
 
 export function PaginaInicio() {
   const { usuario, puede, cotizUsd } = useSesion();
@@ -15,6 +16,10 @@ export function PaginaInicio() {
   const pedidos = useQuery({ queryKey: ['compras', '', 'confirmada'], queryFn: () => api.get<{ fechaEsperada: string | null; pedidas: number; recibidas: number }[]>('/compras?estado=confirmada'), enabled: puede('compras') });
   const hoyIso = new Date().toLocaleDateString('en-CA');
   const atrasados = (pedidos.data ?? []).filter((p) => p.fechaEsperada && p.fechaEsperada.slice(0, 10) < hoyIso).length;
+  const ventasHoy = useQuery({ queryKey: ['ventas', 'hoy'], queryFn: () => api.get<{ resumen: { ventas: number; totalCentavos: number } }>(`/ventas?desde=${hoy()}&hasta=${hoy()}&estado=confirmada`), enabled: puede('ventas') });
+  const ventasMes = useQuery({ queryKey: ['ventas', 'mes'], queryFn: () => api.get<{ resumen: { ventas: number; totalCentavos: number; gananciaCentavos?: number } }>(`/ventas?desde=${inicioMes()}&hasta=${hoy()}&estado=confirmada`), enabled: puede('ventas') });
+  const cuentas = useCuentas(puede('caja'));
+  const plata = (cuentas.data ?? []).filter((c) => c.tipo !== 'externa').reduce((s, c) => s + (c.saldoArsCentavos ?? 0), 0);
   const backups = useQuery({ queryKey: ['backups'], queryFn: () => api.get<{ backups: { fecha: string }[] }>('/backups'), enabled: puede('backups') });
   const ms = modelos.data ?? [];
   const variantes = ms.reduce((s, m) => s + m.variantes, 0);
@@ -35,8 +40,16 @@ export function PaginaInicio() {
         {atrasados > 0 && <Aviso tono="atencion"><b>{atrasados}</b> pedidos pasaron la fecha de entrega esperada. <Link className="underline" to="/compras?estado=confirmada">Ver pedidos</Link></Aviso>}
         {puede('backups') && backups.data && !ultimo && <Aviso tono="critico">Todavía no hay ninguna copia de seguridad. <Link className="underline" to="/backups">Hacer una ahora</Link></Aviso>}
       </div>
+      {(puede('ventas') || puede('caja')) && (
+        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+          {puede('ventas') && <Dato titulo="Ventas de hoy" valor={ventasHoy.data ? pesos(ventasHoy.data.resumen.totalCentavos) : '…'} sub={ventasHoy.data && `${ventasHoy.data.resumen.ventas} ventas`} a={`/ventas?desde=${hoy()}`} />}
+          {puede('ventas') && <Dato titulo="Ventas del mes" valor={ventasMes.data ? pesos(ventasMes.data.resumen.totalCentavos) : '…'} sub={ventasMes.data && `${ventasMes.data.resumen.ventas} ventas`} a="/ventas" />}
+          {puede('ventas') && puede('costos') && <Dato titulo="Ganancia bruta del mes" valor={ventasMes.data ? pesos(ventasMes.data.resumen.gananciaCentavos) : '…'} sub="Ventas menos costo y comisiones" a="/ventas" />}
+          {puede('caja') && <Dato titulo="Plata en cuentas" valor={cuentas.data ? pesos(plata) : '…'} sub="Incluye tarjetas a liquidar" a="/caja" />}
+        </div>
+      )}
       {puede('catalogo') && (
-        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
           <Dato titulo="Productos activos" valor={modelos.isLoading ? '…' : ms.length} a="/catalogo" />
           <Dato titulo="Variantes (color y talle)" valor={modelos.isLoading ? '…' : variantes} a="/catalogo" />
           {puede('stock') ? <Dato titulo="Unidades en stock" valor={stockTotal.data ? stockTotal.data.totales.unidades.toLocaleString('es-AR') : '…'} a="/stock" /> : <Dato titulo="Productos sin precio" valor={modelos.isLoading ? '…' : sinPrecio} a="/catalogo" />}
@@ -48,19 +61,21 @@ export function PaginaInicio() {
         <div className="etiqueta mb-2">En esta versión</div>
         Catálogo con variantes, costos y listas de precio; cambios de precio con vista previa y aprobación; importación de planillas;
         stock por movimientos con ajustes, conteos físicos y carga inicial; pedidos a proveedores y al taller con recepciones parciales y costo promedio;
-        proveedores; usuarios con roles y permisos; auditoría de cada cambio; configuración y copias de seguridad automáticas.
+        ventas con cobro en una o varias formas de pago y comisiones; caja por cuenta con pases, liquidaciones de tarjetas, aportes, retiros y arqueos;
+        gastos con categorías y subcategorías; pagos y cuenta corriente de proveedores; usuarios con roles y permisos; auditoría de cada cambio; configuración y copias de seguridad automáticas.
         <div className="etiqueta mb-2 mt-4">Próximas entregas</div>
-        Ventas, cobros y caja (con pagos a proveedores) · costos, producción con Laura y formación de precios · panel, reportes y alertas.
+        Costos, producción con Laura y formación de precios · panel, reportes y alertas.
       </div>
     </>
   );
 }
 
-function Dato({ titulo, valor, a, chico }: { titulo: string; valor: React.ReactNode; a: string; chico?: boolean }) {
+function Dato({ titulo, valor, a, chico, sub }: { titulo: string; valor: React.ReactNode; a: string; chico?: boolean; sub?: React.ReactNode }) {
   return (
     <Link to={a} className="tarjeta block p-4 transition-colors hover:border-dorado">
       <div className="etiqueta">{titulo}</div>
       <div className={`mt-2 font-titulo font-bold ${chico ? 'text-base' : 'text-3xl'}`}>{valor}</div>
+      {sub && <div className="mt-0.5 text-xs text-carbon/55">{sub}</div>}
     </Link>
   );
 }

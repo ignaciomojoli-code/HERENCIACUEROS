@@ -23,7 +23,7 @@ const base = new Base(archivoBase);
 base.tx((db) => sembrar(db));
 const app = await crearApp({ base, carpetaWeb: path.join(raiz, 'dist-web'), logger: process.env.NODE_ENV !== 'production' ? { level: 'warn' } as never : false });
 
-const log = (m: string) => console.log(`[${new Date().toLocaleString('es-AR')}] ${m}`);
+const log = (m: string) => console.log(`[${new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour12: false })}] ${m}`);
 // Backup al arrancar (si la base ya tiene datos) y después cada N horas según Configuración.
 if (fs.statSync(archivoBase).size > 0) crearBackup(base, 'auto', null).then((b) => log(`Backup al iniciar: ${b.nombre}`)).catch((e) => log(`ERROR backup: ${e.message}`));
 programarBackups(base, log);

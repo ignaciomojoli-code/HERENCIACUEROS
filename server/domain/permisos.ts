@@ -13,6 +13,9 @@ export const MODULOS = {
   proveedores: 'Proveedores',
   stock: 'Stock, ajustes y conteos',
   compras: 'Compras y recepciones',
+  ventas: 'Ventas',
+  caja: 'Caja, cuentas y pagos a proveedores',
+  gastos: 'Gastos',
   importacion: 'Importación de datos',
   usuarios: 'Usuarios y roles',
   configuracion: 'Configuración',
@@ -36,19 +39,19 @@ export const ROLES_POR_DEFECTO: { nombre: string; descripcion: string; permisos:
     nombre: 'Gerencia',
     descripcion: 'Todo lo operativo y los reportes; aprueba precios y anulaciones',
     permisos: {
-      panel: todo(), catalogo: todo(), costos: todo(), precios: todo(), proveedores: todo(), stock: todo(), compras: todo(),
+      panel: todo(), catalogo: todo(), costos: todo(), precios: todo(), proveedores: todo(), stock: todo(), compras: todo(), ventas: todo(), caja: todo(), gastos: todo(),
       importacion: todo(), auditoria: ['ver', 'exportar'], configuracion: ['ver'], backups: ['ver'],
     },
   },
   {
     nombre: 'Administración',
     descripcion: 'Caja, gastos, pagos y cuentas corrientes; no cambia precios',
-    permisos: { panel: lectura, catalogo: ['ver', 'exportar'], costos: ['ver'], precios: ['ver', 'exportar'], proveedores: ['ver', 'crear', 'modificar', 'exportar'], stock: ['ver', 'exportar'], compras: ['ver', 'exportar'] },
+    permisos: { panel: lectura, catalogo: ['ver', 'exportar'], costos: ['ver'], precios: ['ver', 'exportar'], proveedores: ['ver', 'crear', 'modificar', 'exportar'], stock: ['ver', 'exportar'], compras: ['ver', 'exportar'], ventas: ['ver', 'exportar'], caja: ['ver', 'crear', 'modificar', 'exportar'], gastos: ['ver', 'crear', 'modificar', 'exportar'] },
   },
   {
     nombre: 'Ventas',
     descripcion: 'Registra ventas y cobros; ve precios y stock, no ve costos ni ganancia',
-    permisos: { catalogo: ['ver'], precios: ['ver'], stock: ['ver'] },
+    permisos: { catalogo: ['ver'], precios: ['ver'], stock: ['ver'], ventas: ['ver', 'crear'] },
   },
   {
     nombre: 'Depósito',
@@ -60,15 +63,15 @@ export const ROLES_POR_DEFECTO: { nombre: string; descripcion: string; permisos:
     descripcion: 'Proveedores, órdenes de compra, facturas y costos',
     permisos: { catalogo: ['ver', 'crear', 'modificar', 'exportar'], costos: ['ver', 'modificar'], precios: ['ver'], proveedores: todo(), stock: ['ver', 'exportar'], compras: todo(), importacion: ['ver', 'crear'] },
   },
-  { nombre: 'Consulta', descripcion: 'Solo lectura', permisos: { panel: lectura, catalogo: lectura, precios: lectura, proveedores: lectura, stock: lectura, compras: lectura } },
+  { nombre: 'Consulta', descripcion: 'Solo lectura', permisos: { panel: lectura, catalogo: lectura, precios: lectura, proveedores: lectura, stock: lectura, compras: lectura, ventas: lectura } },
 ];
 
 /**
  * Módulos que se agregaron después de la primera versión. Al actualizar el sistema, los roles por defecto
  * reciben los permisos de estos módulos (los roles creados a mano no se tocan).
  */
-export const MODULOS_POR_VERSION: Record<number, Modulo[]> = { 2: ['stock', 'compras'] };
-export const VERSION_PERMISOS = 2;
+export const MODULOS_POR_VERSION: Record<number, Modulo[]> = { 2: ['stock', 'compras'], 3: ['ventas', 'caja', 'gastos'] };
+export const VERSION_PERMISOS = 3;
 
 export function tienePermiso(permisos: MapaPermisos | Record<string, string[]>, modulo: Modulo, accion: Accion): boolean {
   const acc = (permisos as Record<string, string[]>)[modulo];

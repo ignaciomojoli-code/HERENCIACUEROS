@@ -348,3 +348,170 @@ export const recepcionItems = sqliteTable('recepcion_items', {
   cantidad: integer('cantidad').notNull(),
   costoUnitarioCentavos: integer('costo_unitario_centavos').notNull(),
 }, (t) => [index('recepcion_items_rec_idx').on(t.recepcionId)]);
+
+// ───────────────────────── Plata: cuentas y caja ─────────────────────────
+
+/**
+ * Dónde está la plata: efectivo, Mercado Pago, Cuenta DNI, tarjetas a liquidar, dólares.
+ * 'a_liquidar' = lo cobrado con tarjeta que todavía no llegó; 'externa' = pagos que hace alguien de afuera
+ * (ej. el inversor externo): todo lo que se paga desde ahí entra antes como aporte, así que su saldo es siempre 0.
+ */
+export const cuentas = sqliteTable('cuentas', {
+  id: id(),
+  nombre: text('nombre').notNull().unique(),
+  tipo: text('tipo', { enum: ['efectivo', 'banco', 'billetera', 'a_liquidar', 'externa'] }).notNull(),
+  moneda: text('moneda', { enum: ['ARS', 'USD'] }).notNull().default('ARS'),
+  orden: integer('orden').notNull().default(0),
+  activo: activo(),
+  creadoEn: creadoEn(),
+  actualizadoEn: actualizadoEn(),
+});
+
+/** Formas de cobro (efectivo, transferencia, débito, crédito en cuotas…): a qué cuenta entra la plata, con qué lista de precios y qué comisión se estima. */
+export const formasPago = sqliteTable('formas_pago', {
+  id: id(),
+  nombre: text('nombre').notNull().unique(),
+  cuentaId: integer('cuenta_id').notNull().references(() => cuentas.id),
+  listaPrecioId: integer('lista_precio_id').references(() => listasPrecio.id),
+  /** Comisión + IVA + retenciones estimadas, en puntos básicos. */
+  comisionBp: integer('comision_bp').notNull().default(0),
+  orden: integer('orden').notNull().default(0),
+  activo: activo(),
+  creadoEn: creadoEn(),
+  actualizadoEn: actualizadoEn(),
+});
+
+/**
+ * Libro de caja: cada entrada o salida de plata de una cuenta. Solo se agregan filas.
+ * El saldo de una cuenta es la suma de sus movimientos; anular agrega el movimiento contrario.
+ * `importeCentavos` va en la moneda de la cuenta; `importeArsCentavos` es su equivalente en pesos.
+ */
+export const movimientosCaja = sqliteTable('movimientos_caja', {
+  id: id(),
+  fecha: text('fecha').notNull(),
+  cuentaId: integer('cuenta_id').notNull().references(() => cuentas.id),
+  importeCentavos: integer('importe_centavos').notNull(),
+  importeArsCentavos: integer('importe_ars_centavos').notNull(),
+  tipo: text('tipo', {
+    enum: ['saldo_inicial', 'venta', 'comision', 'gasto', 'pago_proveedor', 'pase', 'liquidacion', 'aporte', 'retiro', 'ajuste', 'anulacion'],
+  }).notNull(),
+  concepto: text('concepto').notNull(),
+  refTipo: text('ref_tipo'),
+  refId: integer('ref_id'),
+  /** Agrupa los movimientos de una misma operación (ej. las dos patas de un pase). */
+  grupo: text('grupo'),
+  anulaId: integer('anula_id'),
+  usuarioId: integer('usuario_id').references(() => usuarios.id),
+  esDemo: esDemo(),
+  creadoEn: creadoEn(),
+}, (t) => [index('mov_caja_cuenta_idx').on(t.cuentaId), index('mov_caja_fecha_idx').on(t.fecha), index('mov_caja_ref_idx').on(t.refTipo, t.refId), index('mov_caja_grupo_idx').on(t.grupo)]);
+
+/** Arqueo: lo que se contó en una cuenta contra lo que dice el sistema. La diferencia queda como ajuste. */
+export const arqueos = sqliteTable('arqueos', {
+  id: id(),
+  fecha: text('fecha').notNull(),
+  cuentaId: integer('cuenta_id').notNull().references(() => cuentas.id),
+  saldoSistemaCentavos: integer('saldo_sistema_centavos').notNull(),
+  saldoRealCentavos: integer('saldo_real_centavos').notNull(),
+  notas: text('notas'),
+  usuarioId: integer('usuario_id').references(() => usuarios.id),
+  creadoEn: creadoEn(),
+});
+
+// ───────────────────────── Ventas ─────────────────────────
+
+export const ventas = sqliteTable('ventas', {
+  id: id(),
+  numero: integer('numero').notNull().unique(),
+  fecha: text('fecha').notNull(),
+  cliente: text('cliente'),
+  /** Lista con la que se armaron los precios (efectivo o tarjeta). */
+  listaPrecioId: integer('lista_precio_id').references(() => listasPrecio.id),
+  estado: text('estado', { enum: ['confirmada', 'anulada'] }).notNull().default('confirmada'),
+  notas: text('notas'),
+  motivoAnulacion: text('motivo_anulacion'),
+  usuarioId: integer('usuario_id').references(() => usuarios.id),
+  esDemo: esDemo(),
+  creadoEn: creadoEn(),
+  actualizadoEn: actualizadoEn(),
+}, (t) => [index('ventas_fecha_idx').on(t.fecha)]);
+
+export const ventaItems = sqliteTable('venta_items', {
+  id: id(),
+  ventaId: integer('venta_id').notNull().references(() => ventas.id),
+  varianteId: integer('variante_id').notNull().references(() => variantes.id),
+  cantidad: integer('cantidad').notNull(),
+  /** Precio de lista al momento de vender (para medir descuentos). null = no tenía precio cargado. */
+  precioListaCentavos: integer('precio_lista_centavos'),
+  /** Lo que se cobró por unidad. */
+  precioCentavos: integer('precio_centavos').notNull(),
+  /** Costo unitario al momento de vender (foto, para la ganancia). null = costo pendiente. */
+  costoUnitarioCentavos: integer('costo_unitario_centavos'),
+}, (t) => [index('venta_items_venta_idx').on(t.ventaId), index('venta_items_variante_idx').on(t.varianteId)]);
+
+/** Cobros de una venta: puede pagarse con más de una forma (ej. parte efectivo y parte tarjeta). */
+export const ventaPagos = sqliteTable('venta_pagos', {
+  id: id(),
+  ventaId: integer('venta_id').notNull().references(() => ventas.id),
+  formaPagoId: integer('forma_pago_id').notNull().references(() => formasPago.id),
+  cuentaId: integer('cuenta_id').notNull().references(() => cuentas.id),
+  /** Equivalente en pesos (lo que cancela de la venta). */
+  importeCentavos: integer('importe_centavos').notNull(),
+  /** Si se cobró en otra moneda: el importe en esa moneda (centavos de USD). */
+  importeMonedaCentavos: integer('importe_moneda_centavos'),
+  comisionEstimadaCentavos: integer('comision_estimada_centavos').notNull().default(0),
+  /** Comisión real, si se conoce (ej. al ver la liquidación). null = se usa la estimada. */
+  comisionRealCentavos: integer('comision_real_centavos'),
+}, (t) => [index('venta_pagos_venta_idx').on(t.ventaId)]);
+
+// ───────────────────────── Gastos ─────────────────────────
+
+/** Categorías de gastos con subcategorías (padreId). */
+export const categoriasGasto = sqliteTable('categorias_gasto', {
+  id: id(),
+  nombre: text('nombre').notNull(),
+  padreId: integer('padre_id'),
+  orden: integer('orden').notNull().default(0),
+  activo: activo(),
+  creadoEn: creadoEn(),
+}, (t) => [uniqueIndex('categorias_gasto_nombre_padre_uq').on(t.nombre, sql`coalesce(${t.padreId}, 0)`)]);
+
+export const gastos = sqliteTable('gastos', {
+  id: id(),
+  numero: integer('numero').notNull().unique(),
+  fecha: text('fecha').notNull(),
+  concepto: text('concepto').notNull(),
+  categoriaId: integer('categoria_id').notNull().references(() => categoriasGasto.id),
+  subcategoriaId: integer('subcategoria_id').references(() => categoriasGasto.id),
+  importeCentavos: integer('importe_centavos').notNull(),
+  cuentaId: integer('cuenta_id').notNull().references(() => cuentas.id),
+  proveedorId: integer('proveedor_id').references(() => proveedores.id),
+  comprobante: text('comprobante'),
+  notas: text('notas'),
+  estado: text('estado', { enum: ['activo', 'anulado'] }).notNull().default('activo'),
+  motivoAnulacion: text('motivo_anulacion'),
+  usuarioId: integer('usuario_id').references(() => usuarios.id),
+  esDemo: esDemo(),
+  creadoEn: creadoEn(),
+  actualizadoEn: actualizadoEn(),
+}, (t) => [index('gastos_fecha_idx').on(t.fecha), index('gastos_categoria_idx').on(t.categoriaId)]);
+
+// ───────────────────────── Pagos a proveedores ─────────────────────────
+
+export const pagosProveedor = sqliteTable('pagos_proveedor', {
+  id: id(),
+  numero: integer('numero').notNull().unique(),
+  fecha: text('fecha').notNull(),
+  proveedorId: integer('proveedor_id').notNull().references(() => proveedores.id),
+  compraId: integer('compra_id').references(() => compras.id),
+  cuentaId: integer('cuenta_id').notNull().references(() => cuentas.id),
+  importeCentavos: integer('importe_centavos').notNull(),
+  comprobante: text('comprobante'),
+  notas: text('notas'),
+  estado: text('estado', { enum: ['activo', 'anulado'] }).notNull().default('activo'),
+  motivoAnulacion: text('motivo_anulacion'),
+  usuarioId: integer('usuario_id').references(() => usuarios.id),
+  esDemo: esDemo(),
+  creadoEn: creadoEn(),
+  actualizadoEn: actualizadoEn(),
+}, (t) => [index('pagos_proveedor_prov_idx').on(t.proveedorId)]);

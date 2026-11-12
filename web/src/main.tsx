@@ -27,6 +27,11 @@ import { PaginaMovimientos } from './paginas/Movimientos';
 import { PaginaConteo, PaginaConteos } from './paginas/Conteos';
 import { PaginaStockInicial } from './paginas/StockInicial';
 import { PaginaCompra, PaginaCompraForm, PaginaCompras } from './paginas/Compras';
+import { PaginaVenta, PaginaVentaNueva, PaginaVentas } from './paginas/Ventas';
+import { PaginaCaja } from './paginas/Caja';
+import { PaginaGastos } from './paginas/Gastos';
+import { PaginaPagos } from './paginas/Pagos';
+import { PaginaCuentasFormas } from './paginas/CuentasFormas';
 
 const cliente = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 15_000, refetchOnWindowFocus: false } } });
 
@@ -74,6 +79,13 @@ function App() {
           {puede('compras', 'crear') && <Route path="/compras/nuevo" element={<PaginaCompraForm />} />}
           {puede('compras') && <Route path="/compras/:id" element={<PaginaCompra />} />}
           {puede('compras', 'modificar') && <Route path="/compras/:id/editar" element={<PaginaCompraForm />} />}
+          {puede('ventas') && <Route path="/ventas" element={<PaginaVentas />} />}
+          {puede('ventas', 'crear') && <Route path="/ventas/nueva" element={<PaginaVentaNueva />} />}
+          {puede('ventas') && <Route path="/ventas/:id" element={<PaginaVenta />} />}
+          {puede('caja') && <Route path="/caja" element={<PaginaCaja />} />}
+          {puede('caja') && <Route path="/pagos" element={<PaginaPagos />} />}
+          {puede('caja') && <Route path="/cuentas" element={<PaginaCuentasFormas />} />}
+          {puede('gastos') && <Route path="/gastos" element={<PaginaGastos />} />}
           {puede('usuarios') && <Route path="/usuarios" element={<PaginaUsuarios />} />}
           {puede('configuracion') && <Route path="/configuracion" element={<PaginaConfiguracion />} />}
           {puede('auditoria') && <Route path="/auditoria" element={<PaginaAuditoria />} />}
