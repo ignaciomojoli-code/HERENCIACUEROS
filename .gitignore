@@ -1,0 +1,14 @@
+node_modules/
+dist-web/
+dist-server/
+# Datos reales de la empresa: NUNCA al repositorio
+datos/
+backups/
+*.db
+*.db-wal
+*.db-shm
+*.xlsx
+*.csv
+!test/fixtures/*.csv
+.env
+*.log
