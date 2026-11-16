@@ -6,13 +6,9 @@ import { Logo } from './ui';
 
 type Item = { a: string; texto: string; icono: typeof Home; modulo?: string; accion?: 'crear'; requiere?: string };
 const SECCIONES: { titulo: string; items: Item[] }[] = [
-  { titulo: '', items: [{ a: '/', texto: 'Inicio', icono: Home }, { a: '/reportes', texto: 'Reportes', icono: BarChart3, modulo: 'panel' }] },
-  { titulo: 'Ventas y plata', items: [
+  { titulo: '', items: [
+    { a: '/', texto: 'Caja', icono: Wallet, modulo: 'caja' },
     { a: '/ventas', texto: 'Ventas', icono: ShoppingBag, modulo: 'ventas' },
-    { a: '/caja', texto: 'Caja', icono: Wallet, modulo: 'caja' },
-    { a: '/gastos', texto: 'Gastos', icono: Receipt, modulo: 'gastos' },
-    { a: '/pagos', texto: 'Pagos a proveedores', icono: HandCoins, modulo: 'caja' },
-    { a: '/cuentas', texto: 'Cuentas y formas de pago', icono: CreditCard, modulo: 'caja' },
   ] },
   { titulo: 'Productos', items: [
     { a: '/catalogo', texto: 'Catálogo', icono: Tags, modulo: 'catalogo' },
@@ -25,19 +21,28 @@ const SECCIONES: { titulo: string; items: Item[] }[] = [
     { a: '/stock', texto: 'Stock', icono: Boxes, modulo: 'stock' },
     { a: '/conteos', texto: 'Conteos físicos', icono: ClipboardList, modulo: 'stock' },
   ] },
+  { titulo: 'Reposición y pedidos', items: [
+    { a: '/para-pedir', texto: 'Para pedir', icono: ListTodo, modulo: 'compras' },
+    { a: '/compras', texto: 'Pedidos y recepciones', icono: PackageCheck, modulo: 'compras' },
+  ] },
+  { titulo: 'Proveedores', items: [
+    { a: '/proveedores', texto: 'Proveedores', icono: Truck, modulo: 'proveedores' },
+    { a: '/pagos', texto: 'Cuentas corrientes y pagos', icono: HandCoins, modulo: 'caja' },
+  ] },
   { titulo: 'Producción', items: [
     { a: '/materiales', texto: 'Materiales', icono: Scissors, modulo: 'materiales' },
     { a: '/costeo', texto: 'Recetas y costeo', icono: Calculator, modulo: 'costos' },
   ] },
-  { titulo: 'Compras', items: [
-    { a: '/para-pedir', texto: 'Para pedir', icono: ListTodo, modulo: 'compras' },
-    { a: '/compras', texto: 'Pedidos y recepciones', icono: PackageCheck, modulo: 'compras' },
-    { a: '/proveedores', texto: 'Proveedores', icono: Truck, modulo: 'proveedores' },
+  { titulo: 'Gastos y estadísticas', items: [
+    { a: '/gastos', texto: 'Gastos', icono: Receipt, modulo: 'gastos' },
+    { a: '/resumen', texto: 'Resumen', icono: Home },
+    { a: '/reportes', texto: 'Estadísticas', icono: BarChart3, modulo: 'panel' },
+    { a: '/auditoria', texto: 'Auditoría', icono: ShieldCheck, modulo: 'auditoria' },
   ] },
   { titulo: 'Sistema', items: [
+    { a: '/cuentas', texto: 'Cuentas y formas de pago', icono: CreditCard, modulo: 'caja' },
     { a: '/usuarios', texto: 'Usuarios y roles', icono: Users, modulo: 'usuarios' },
     { a: '/configuracion', texto: 'Configuración', icono: Settings, modulo: 'configuracion' },
-    { a: '/auditoria', texto: 'Auditoría', icono: ShieldCheck, modulo: 'auditoria' },
     { a: '/backups', texto: 'Copias de seguridad', icono: Database, modulo: 'backups' },
   ] },
 ];
@@ -68,9 +73,6 @@ export function Marco({ children }: { children: ReactNode }) {
             </div>
           );
         })}
-        <div className="px-3 pt-2 text-[11px] leading-relaxed text-marfil/35">
-          Próximas entregas: costos y producción, panel y reportes.
-        </div>
       </div>
       <div className="border-t border-marfil/10 p-3">
         <NavLink to="/mi-cuenta" className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-marfil/80 hover:bg-marfil/5">

@@ -6,6 +6,7 @@ import { api, qs } from '../api';
 import { useSesion } from '../sesion';
 import { describirVariante, type Aux, type VarianteBuscada } from '../tipos';
 import { Aviso, Campo, Cargando, Confirmar, Encabezado, ErrorCarga, Modal, Vacio, avisar, avisarError } from '../componentes/ui';
+import { Th, useOrden } from '../componentes/Orden';
 import { Importe } from '../componentes/Importe';
 import { BuscadorVariante } from '../componentes/BuscadorVariante';
 import { fechaHora, pct, pesos } from '../formato';
@@ -37,6 +38,10 @@ export function PaginaVentas() {
   const lista = useQuery({ queryKey: ['ventas', filtro], queryFn: () => api.get<{ total: number; resumen: Resumen; filas: VentaFila[] }>('/ventas' + qs(filtro)) });
   const costos = puede('costos');
   const r = lista.data?.resumen;
+  const { filas: ventas, orden } = useOrden(lista.data?.filas, {
+    numero: (v) => v.numero, fecha: (v) => v.fecha, productos: (v) => v.productos, forma: (v) => v.formas, total: (v) => v.totalCentavos,
+    lista: (v) => v.diferenciaListaCentavos ?? 0, ganancia: (v) => v.gananciaCentavos,
+  }, { col: 'numero', dir: 'desc' });
   return (
     <>
       <Encabezado titulo="Ventas" sub="Cada venta descuenta stock y registra la plata en su cuenta.">
@@ -63,9 +68,9 @@ export function PaginaVentas() {
       {lista.isLoading ? <Cargando /> : lista.isError ? <ErrorCarga error={lista.error} /> : !lista.data!.filas.length ? <Vacio>No hay ventas en ese período.</Vacio> : (
         <div className="tarjeta overflow-x-auto">
           <table className="tabla">
-            <thead><tr><th>N°</th><th>Fecha</th><th>Productos</th><th className="hidden md:table-cell">Forma de pago</th><th className="num">Total</th><th className="num hidden lg:table-cell">vs lista</th>{costos && <th className="num hidden sm:table-cell">Ganancia</th>}</tr></thead>
+            <thead><tr><Th col="numero" orden={orden}>N°</Th><Th col="fecha" orden={orden}>Fecha</Th><Th col="productos" orden={orden}>Productos</Th><Th col="forma" orden={orden} className="hidden md:table-cell">Forma de pago</Th><Th col="total" orden={orden} className="num">Total</Th><Th col="lista" orden={orden} className="num hidden lg:table-cell">vs lista</Th>{costos && <Th col="ganancia" orden={orden} className="num hidden sm:table-cell">Ganancia</Th>}</tr></thead>
             <tbody>
-              {lista.data!.filas.map((v) => (
+              {ventas.map((v) => (
                 <tr key={v.id} className={`cursor-pointer ${v.estado === 'anulada' ? 'text-carbon/40 line-through' : ''}`} onClick={() => nav(`/ventas/${v.id}`)}>
                   <td className="font-medium">V-{v.numero}</td>
                   <td className="whitespace-nowrap">{fechaCorta(v.fecha)}</td>

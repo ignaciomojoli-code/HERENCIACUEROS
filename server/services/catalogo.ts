@@ -5,7 +5,7 @@
 import { and, asc, eq, inArray, isNull, like, or, sql } from 'drizzle-orm';
 import {
   categorias, colores, talles, modelos, variantes, proveedores, unidades,
-  listasPrecio, precios, historialCostos, historialPrecios,
+  listasPrecio, precios, historialCostos, historialPrecios, recetaItems,
 } from '../db/schema.js';
 import type { DB } from '../db/index.js';
 import { ahora } from './tiempo.js';
@@ -74,13 +74,48 @@ export interface FiltroModelos {
   q?: string;
   categoriaId?: number;
   estado?: 'activos' | 'inactivos' | 'todos';
+  /** 'pendiente' = sin clasificar */
+  clasificacion?: Clasificacion | 'pendiente';
 }
 
 /** Listado de modelos con resumen de variantes, costo y precios. */
+/**
+ * Clasificación sugerida a partir de los datos (nunca se aplica sola, hay que confirmarla):
+ * tiene receta → fabricación propia; si no, el tipo del último pedido (reventa → comprado, confección → fabricación propia);
+ * si no, el rol del proveedor (producto terminado → comprado).
+ */
+const sugerenciaSql = sql<Clasificacion | null>`case
+  when exists (select 1 from receta_items r where r.modelo_id = ${modelos.id}) then 'fabricacion_propia'
+  else coalesce(
+    (select case c.tipo when 'reventa' then 'producto_comprado' else 'fabricacion_propia' end from compra_items ci join compras c on c.id = ci.compra_id join variantes v on v.id = ci.variante_id
+      where v.modelo_id = ${modelos.id} and c.estado != 'anulada' order by c.id desc limit 1),
+    (select case p.rol when 'producto_terminado' then 'producto_comprado' when 'taller' then 'fabricacion_propia' end from proveedores p where p.id = ${modelos.proveedorId}))
+  end`;
+
+/** Clasifica varios modelos de una vez (queda en auditoría cada cambio). */
+export function clasificarModelos(ctx: Ctx, ids: number[], clasificacion: Clasificacion | null) {
+  if (!ids.length) throw new ErrorNegocio('Elegí al menos un modelo');
+  const filas = ctx.db.select({ id: modelos.id, clasificacion: modelos.clasificacion }).from(modelos).where(inArray(modelos.id, ids)).all();
+  if (filas.length !== new Set(ids).size) throw noEncontrado('Algún modelo');
+  if (clasificacion === 'producto_comprado') {
+    const conReceta = ctx.db.select({ nombre: modelos.nombre }).from(modelos).where(and(inArray(modelos.id, ids), sql`exists (select 1 from receta_items r where r.modelo_id = ${modelos.id})`)).all();
+    if (conReceta.length) throw new ErrorNegocio(`Tienen receta, no pueden ser producto comprado: ${conReceta.map((m) => m.nombre).join(', ')}. Sacales la receta primero.`);
+  }
+  let cambiados = 0;
+  for (const f of filas) {
+    if (f.clasificacion === clasificacion) continue;
+    ctx.db.update(modelos).set({ clasificacion, actualizadoEn: ahora() }).where(eq(modelos.id, f.id)).run();
+    auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'modificar', entidad: 'modelo', entidadId: f.id, antes: { clasificacion: f.clasificacion }, despues: { clasificacion } });
+    cambiados++;
+  }
+  return { cambiados };
+}
+
 export function listarModelos(db: DB, f: FiltroModelos = {}) {
   const conds = [];
   if (f.estado !== 'todos') conds.push(eq(modelos.activo, f.estado !== 'inactivos'));
   if (f.categoriaId) conds.push(eq(modelos.categoriaId, f.categoriaId));
+  if (f.clasificacion) conds.push(f.clasificacion === 'pendiente' ? isNull(modelos.clasificacion) : eq(modelos.clasificacion, f.clasificacion));
   if (f.q?.trim()) {
     const q = `%${f.q.trim()}%`;
     // Busca por nombre del modelo, SKU, color o código de barras.
@@ -93,7 +128,8 @@ export function listarModelos(db: DB, f: FiltroModelos = {}) {
     .select({
       id: modelos.id, nombre: modelos.nombre, activo: modelos.activo, genero: modelos.genero, esDemo: modelos.esDemo,
       categoriaId: modelos.categoriaId, categoria: categorias.nombre, subcategoriaId: modelos.subcategoriaId,
-      proveedor: proveedores.nombre,
+      proveedor: proveedores.nombre, clasificacion: modelos.clasificacion,
+      sugerencia: sugerenciaSql,
       variantes: sql<number>`(select count(*) from variantes v where v.modelo_id = ${modelos.id} and v.activo = 1)`,
       costoMin: sql<number | null>`(select min(v.costo_centavos) from variantes v where v.modelo_id = ${modelos.id} and v.activo = 1)`,
       costoMax: sql<number | null>`(select max(v.costo_centavos) from variantes v where v.modelo_id = ${modelos.id} and v.activo = 1)`,
@@ -161,8 +197,13 @@ export interface DatosModelo {
   unidadId?: number | null;
   proveedorId?: number | null;
   impuestoBp?: number | null;
+  /** undefined = no se toca (al editar). */
+  clasificacion?: Clasificacion | null;
   notas?: string | null;
 }
+
+export const CLASIFICACIONES = ['producto_comprado', 'fabricacion_propia', 'materia_prima', 'material_produccion', 'insumo', 'otro'] as const;
+export type Clasificacion = typeof CLASIFICACIONES[number];
 
 export interface DatosVariante {
   sku: string;
@@ -212,7 +253,7 @@ export function crearModelo(ctx: Ctx, d: DatosModelo, vs: DatosVariante[] = []) 
   const m = ctx.db.insert(modelos).values({
     nombre: prolijo(d.nombre), descripcion: d.descripcion ?? null, categoriaId: d.categoriaId, subcategoriaId: d.subcategoriaId ?? null,
     genero: d.genero ?? null, marca: d.marca ?? null, unidadId: d.unidadId ?? null, proveedorId: d.proveedorId ?? null,
-    impuestoBp: d.impuestoBp ?? null, notas: d.notas ?? null, creadoEn: t, actualizadoEn: t,
+    impuestoBp: d.impuestoBp ?? null, clasificacion: d.clasificacion ?? null, notas: d.notas ?? null, creadoEn: t, actualizadoEn: t,
   }).returning().get();
   auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'crear', entidad: 'modelo', entidadId: m.id, despues: m });
   for (const v of vs) crearVariante(ctx, m.id, v, 'alta');
@@ -223,10 +264,14 @@ export function actualizarModelo(ctx: Ctx, id: number, d: DatosModelo) {
   const antes = ctx.db.select().from(modelos).where(eq(modelos.id, id)).get();
   if (!antes) throw noEncontrado('El modelo');
   validarModelo(ctx.db, d, id);
+  if (d.clasificacion === 'producto_comprado' && ctx.db.select({ id: recetaItems.id }).from(recetaItems).where(eq(recetaItems.modeloId, id)).get()) {
+    throw new ErrorNegocio('Este modelo tiene receta: un producto comprado terminado no lleva receta. Sacale la receta primero.');
+  }
   const despues = ctx.db.update(modelos).set({
     nombre: prolijo(d.nombre), descripcion: d.descripcion ?? null, categoriaId: d.categoriaId, subcategoriaId: d.subcategoriaId ?? null,
     genero: d.genero ?? null, marca: d.marca ?? null, unidadId: d.unidadId ?? null, proveedorId: d.proveedorId ?? null,
     impuestoBp: d.impuestoBp ?? null, notas: d.notas ?? null, actualizadoEn: ahora(),
+    ...(d.clasificacion !== undefined ? { clasificacion: d.clasificacion } : {}),
   }).where(eq(modelos.id, id)).returning().get();
   auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'modificar', entidad: 'modelo', entidadId: id, antes, despues });
   return despues;

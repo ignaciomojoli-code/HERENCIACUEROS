@@ -31,6 +31,7 @@ export async function rutasCostos(app: FastifyInstance, { base, requiere, conIde
   const esquemaMaterial = z.object({
     codigo: z.string(), nombre: z.string(), unidad: z.enum(['m', 'u', 'par', 'kg']), tipo: z.enum(['material', 'mano_obra']),
     costoCentavos: entero.min(0).nullable(), proveedorId: entero.nullable(), stockMinimoMil: opt(entero.min(0)), notas: opt(z.string()), activo: z.boolean().optional(),
+    clasificacion: z.enum(['materia_prima', 'material_produccion', 'insumo', 'otro']).nullable().optional(),
     motivo: z.string().optional(),
   });
   app.post('/materiales', async (req) => {

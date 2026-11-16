@@ -88,14 +88,15 @@ export function crearGasto(ctx: Ctx, d: DatosGasto) {
 }
 
 /** Corrige datos descriptivos (concepto, categoría, comprobante, notas). Para cambiar importe, fecha o cuenta: anular y cargar de nuevo. */
-export function editarGasto(ctx: Ctx, id: number, d: { concepto: string; categoriaId: number; subcategoriaId?: number | null; proveedorId?: number | null; comprobante?: string | null; notas?: string | null }) {
+export function editarGasto(ctx: Ctx, id: number, d: { concepto: string; categoriaId: number; subcategoriaId?: number | null; proveedorId?: number | null; comprobante?: string | null; notas?: string | null; motivo?: string }) {
+  if (!d.motivo?.trim()) throw new ErrorNegocio('Indicá el motivo de la corrección');
   const antes = ctx.db.select().from(gastos).where(eq(gastos.id, id)).get();
   if (!antes) throw noEncontrado('El gasto');
   if (antes.estado === 'anulado') throw new ErrorNegocio('El gasto está anulado');
   if (!d.concepto?.trim()) throw new ErrorNegocio('Indicá el concepto');
   validarCategoria(ctx.db, d.categoriaId, d.subcategoriaId);
   const g = ctx.db.update(gastos).set({ concepto: d.concepto.trim(), categoriaId: d.categoriaId, subcategoriaId: d.subcategoriaId ?? null, proveedorId: d.proveedorId ?? null, comprobante: d.comprobante?.trim() || null, notas: d.notas?.trim() || null, actualizadoEn: ahora() }).where(eq(gastos.id, id)).returning().get();
-  auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'modificar', entidad: 'gasto', entidadId: id, antes, despues: g });
+  auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'modificar', entidad: 'gasto', entidadId: id, antes, despues: g, detalle: d.motivo.trim() });
   return g;
 }
 

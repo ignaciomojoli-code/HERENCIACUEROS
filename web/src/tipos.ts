@@ -10,7 +10,17 @@ export interface Aux {
   proveedores: { id: number; nombre: string; activo: boolean; estado: string }[];
   listasPrecio: Lista[];
 }
+export const CLASIFICACIONES = {
+  producto_comprado: 'Producto terminado comprado', fabricacion_propia: 'Fabricación propia', materia_prima: 'Materia prima',
+  material_produccion: 'Material de producción', insumo: 'Insumo', otro: 'Otro',
+} as const;
+export type Clasificacion = keyof typeof CLASIFICACIONES;
+export const CLASIFICACION_CORTA: Record<Clasificacion, string> = {
+  producto_comprado: 'Comprado', fabricacion_propia: 'Fabricación propia', materia_prima: 'Materia prima', material_produccion: 'Mat. producción', insumo: 'Insumo', otro: 'Otro',
+};
+
 export interface ModeloResumen {
+  clasificacion: Clasificacion | null; sugerencia: Clasificacion | null;
   id: number; nombre: string; activo: boolean; genero: string | null; esDemo: boolean; categoriaId: number; categoria: string;
   subcategoriaId: number | null; proveedor: string | null; variantes: number; costoMin?: number | null; costoMax?: number | null; sinCosto?: number; stock?: number;
   precios: { listaId: number; min: number; max: number }[];
@@ -23,6 +33,7 @@ export interface Variante {
 export interface Modelo {
   id: number; nombre: string; descripcion: string | null; categoriaId: number; subcategoriaId: number | null; genero: 'Hombre' | 'Mujer' | 'Unisex' | null;
   marca: string | null; unidadId: number | null; proveedorId: number | null; impuestoBp: number | null; notas: string | null; activo: boolean; esDemo: boolean;
+  clasificacion: Clasificacion | null;
   variantes: Variante[];
   historialCostos?: { id: number; varianteId: number; fecha: string; anteriorCentavos: number | null; nuevoCentavos: number | null; origen: string; motivo: string | null }[];
   historialPrecios: { id: number; varianteId: number; listaId: number; fecha: string; anteriorCentavos: number | null; nuevoCentavos: number | null; origen: string; motivo: string | null }[];
