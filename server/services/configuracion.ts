@@ -48,6 +48,16 @@ export const esquemasConfig = {
     /** Redondeo de precios sugeridos, en centavos (ej. 50000 = a $500). */
     redondeoCentavos: z.number().int().nonnegative(),
   }),
+  alertas: z.object({
+    /** Avisar si el último arqueo de efectivo tiene más de N días. */
+    diasArqueo: z.number().int().min(1),
+    /** Avisar si hay cobros con tarjeta sin liquidar hace más de N días. */
+    diasLiquidacion: z.number().int().min(1),
+    /** Avisar si la última copia de seguridad tiene más de N días. */
+    diasBackup: z.number().int().min(1),
+    /** Productos con stock que no se venden hace más de N días. */
+    diasSinVenta: z.number().int().min(7),
+  }),
   costos: z.object({
     /**
      * Componentes de costo que se suman a la receta. 'fijo' = centavos por unidad; 'porcentaje_costo' = bp sobre materiales + mano de obra;
@@ -103,6 +113,7 @@ export const CONFIG_POR_DEFECTO: { [K in ClaveConfig]: ValorConfig<K> } = {
   cotizaciones: { usdCentavos: null, brlCentavos: null, actualizadaEn: null },
   precios: { metodoPorDefecto: 'margen', margenObjetivoBp: 5000, markupObjetivoBp: 10000, redondeoCentavos: 50000 },
   costos: { componentes: [] },
+  alertas: { diasArqueo: 7, diasLiquidacion: 10, diasBackup: 2, diasSinVenta: 90 },
   inventario: { stockMinimoPorDefecto: 1, permitirVentaSinStock: false },
   backups: { carpeta: null, cadaHoras: 4, retenerDiarios: 30, retenerMensuales: 12 },
 };

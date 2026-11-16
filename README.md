@@ -2,7 +2,7 @@
 
 Sistema de gestión para Herencia Cuero (Malabia 48, Villa Crespo). Corre en la compu del local y se usa desde el navegador de esa compu o desde cualquier celular o tablet conectado al mismo Wi-Fi.
 
-## Qué incluye esta versión (entregas 1 a 4)
+## Qué incluye esta versión (entregas 1 a 5)
 
 - **Ingreso con usuario y contraseña**, roles y permisos por módulo y acción (ver, crear, modificar, aprobar, anular, exportar). Siete roles de partida; el de Administrador no se puede modificar.
 - **Catálogo**: productos con variantes por color y talle, código (SKU) y código de barras únicos, costo (vacío = pendiente), precios por lista (Efectivo / transferencia y Tarjeta), historial de costos y precios, duplicar, desactivar sin borrar, vista color × talle.
@@ -20,9 +20,12 @@ Sistema de gestión para Herencia Cuero (Malabia 48, Villa Crespo). Corre en la 
 - **Recetas y costeo** (entrega 4): qué lleva cada modelo, con agregados por talle (ej. cuero extra en 7 y 8). Calcula el costo de cada prenda (materiales + mano de obra + otros costos configurables: monto fijo, % sobre costo o % sobre precio) y lo compara con el cargado. Solo se aplica lo elegido, con motivo, y no se aplica si falta el costo de algún material.
 - **Precios sugeridos** (entrega 4): precio que deja el margen o markup buscado, descontando los % sobre el precio, con el margen que deja hoy cada prenda. Publicar requiere permiso de aprobación, motivo, y se rechaza si el precio cambió mientras se miraba.
 - **Producción** (entrega 4): al recibir prendas del taller se descuentan los materiales de su receta; si se anula la recepción, vuelven.
+- **Panel de inicio** (entrega 5): ventas, cantidad y ticket promedio, ganancia bruta, resultado y plata en cuentas del período elegido (hoy, 7 días, mes, mes anterior, año o fechas a elección), comparados con el período anterior; ventas por día, cómo se cobró, lo más vendido, ventas por categoría y gastos. Cada rol ve solo lo que su permiso permite (sin permiso de costos no aparece costo ni ganancia).
+- **Alertas** (entrega 5): stock negativo o bajo mínimo, materiales para reponer, pedidos atrasados, productos sin costo o sin precio, costos que no coinciden con la receta, materiales sin costo, ventas debajo del costo, cuentas en negativo, tarjetas sin liquidar, arqueos atrasados, deuda con proveedores, cotización pendiente y copias de seguridad atrasadas. Los plazos se configuran.
+- **Reportes** (entrega 5): estado de resultados mes por mes (ventas, costo, comisiones, ganancia bruta, gastos por categoría, resultado; retiros y aportes aparte), ventas por producto con ganancia y margen, y stock sin movimiento con su valor al costo. Todos se bajan a Excel o CSV.
 - Identidad del Manual de marca 2026: Playfair Display + Jost, negro carbón, marfil, crema, dorado arena, bordó y coñac. El rojo oferta queda reservado a ofertas.
 
-Próxima entrega: panel, reportes y alertas.
+Siguiente etapa: carga de los datos reales, pruebas en el local e instalación.
 
 ## Instalación en la compu del local (Windows)
 

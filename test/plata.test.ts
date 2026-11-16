@@ -7,6 +7,7 @@ import { Base } from '../server/db/index.js';
 import { sembrar } from '../server/services/semilla.js';
 import { crearApp } from '../server/http/app.js';
 import { comisionEstimada } from '../server/services/ventas.js';
+import { hoyLocal } from '../server/services/caja.js';
 
 /** Ventas, caja, gastos y pagos contra la API real, con base temporal y datos DEMO. */
 let dir: string; let base: Base; let app: FastifyInstance; let cookie = '';
@@ -127,7 +128,8 @@ describe('caja', () => {
   });
   it('arqueo: la diferencia queda como ajuste no identificado y se puede anular', async () => {
     const e = await saldo('Efectivo');
-    const a = await pedir('POST', '/caja/arqueos', { fecha: '2026-11-12', cuentaId: cuentas.Efectivo, saldoRealCentavos: e - 57800 * 100 });
+    // El arqueo se hace con fecha de hoy: algunos movimientos de la prueba toman la fecha del día.
+    const a = await pedir('POST', '/caja/arqueos', { fecha: hoyLocal(), cuentaId: cuentas.Efectivo, saldoRealCentavos: e - 57800 * 100 });
     expect(a.json.diferenciaCentavos).toBe(-5780000);
     expect(await saldo('Efectivo')).toBe(e - 5780000);
     const movs = (await pedir('GET', `/caja/movimientos?cuentaId=${cuentas.Efectivo}&tipo=ajuste`)).json;

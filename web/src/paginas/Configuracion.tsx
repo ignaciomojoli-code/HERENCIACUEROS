@@ -69,6 +69,13 @@ export function PaginaConfiguracion() {
           <label className="flex items-center gap-2 self-end pb-2 text-sm"><input type="checkbox" disabled={!edita} checked={c.inventario.permitirVentaSinStock} onChange={(e) => set('inventario', 'permitirVentaSinStock', e.target.checked)} />Permitir vender sin stock</label>
         </> })}
 
+        {Seccion({ clave: 'alertas', titulo: 'Alertas del panel', sub: 'Cuándo avisar en el inicio. Son avisos: no frenan ninguna operación.', children: <>
+          <Campo etiqueta="Arqueo de efectivo: avisar después de (días)"><input className="entrada" type="number" min={1} disabled={!edita} value={c.alertas.diasArqueo} onChange={(e) => set('alertas', 'diasArqueo', Number(e.target.value))} /></Campo>
+          <Campo etiqueta="Tarjetas sin liquidar: avisar después de (días)"><input className="entrada" type="number" min={1} disabled={!edita} value={c.alertas.diasLiquidacion} onChange={(e) => set('alertas', 'diasLiquidacion', Number(e.target.value))} /></Campo>
+          <Campo etiqueta="Copia de seguridad: avisar después de (días)"><input className="entrada" type="number" min={1} disabled={!edita} value={c.alertas.diasBackup} onChange={(e) => set('alertas', 'diasBackup', Number(e.target.value))} /></Campo>
+          <Campo etiqueta="Productos sin vender: más de (días)"><input className="entrada" type="number" min={7} disabled={!edita} value={c.alertas.diasSinVenta} onChange={(e) => set('alertas', 'diasSinVenta', Number(e.target.value))} /></Campo>
+        </> })}
+
         {Seccion({ clave: 'backups', titulo: 'Copias de seguridad', sub: 'Recomendado: una carpeta sincronizada con Google Drive, así la copia queda también fuera de la compu.', children: <>
           <Campo etiqueta="Carpeta" ayuda="Vacío = carpeta datos\backups junto al sistema" className="sm:col-span-2"><input className="entrada" disabled={!edita} value={c.backups.carpeta ?? ''} placeholder="Ej: C:\Users\...\Google Drive\Herencia backups" onChange={(e) => set('backups', 'carpeta', e.target.value || null)} /></Campo>
           <Campo etiqueta="Cada cuántas horas"><input className="entrada" type="number" min={1} max={24} disabled={!edita} value={c.backups.cadaHoras} onChange={(e) => set('backups', 'cadaHoras', Number(e.target.value))} /></Campo>
