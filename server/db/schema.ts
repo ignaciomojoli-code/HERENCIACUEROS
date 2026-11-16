@@ -516,6 +516,24 @@ export const pagosProveedor = sqliteTable('pagos_proveedor', {
   actualizadoEn: actualizadoEn(),
 }, (t) => [index('pagos_proveedor_prov_idx').on(t.proveedorId)]);
 
+/**
+ * Ajuste de la cuenta corriente de un proveedor: saldo inicial al migrar, diferencias de redondeo, notas de crédito.
+ * Positivo = se le debe más; negativo = se le debe menos. No mueve plata ni stock. No se borra: se anula.
+ */
+export const ajustesProveedor = sqliteTable('ajustes_proveedor', {
+  id: id(),
+  fecha: text('fecha').notNull(),
+  proveedorId: integer('proveedor_id').notNull().references(() => proveedores.id),
+  importeCentavos: integer('importe_centavos').notNull(),
+  motivo: text('motivo').notNull(),
+  estado: text('estado', { enum: ['activo', 'anulado'] }).notNull().default('activo'),
+  motivoAnulacion: text('motivo_anulacion'),
+  usuarioId: integer('usuario_id').references(() => usuarios.id),
+  esDemo: esDemo(),
+  creadoEn: creadoEn(),
+  actualizadoEn: actualizadoEn(),
+}, (t) => [index('ajustes_proveedor_prov_idx').on(t.proveedorId)]);
+
 // ───────────────────────── Costos y producción ─────────────────────────
 
 /**

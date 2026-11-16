@@ -181,6 +181,20 @@ describe('pagos a proveedores', () => {
     const res = await pedir("GET", `/proveedores/${prov}/resumen`);
     expect(res.json.saldoCentavos).toBe(3800000);
   });
+  it('los ajustes de cuenta corriente cambian el saldo sin mover plata, y se anulan', async () => {
+    const efe = await saldo('Efectivo');
+    const a = await pedir('POST', `/proveedores/${prov}/ajustes`, { fecha: '2026-10-16', importeCentavos: 16200000, motivo: 'Saldo inicial DEMO' });
+    expect(a.status).toBe(200);
+    expect((await pedir('POST', `/proveedores/${prov}/ajustes`, { fecha: '2026-10-16', importeCentavos: 0, motivo: 'x' })).status).toBe(400);
+    let cc = (await pedir('GET', `/proveedores/${prov}/cuenta-corriente`)).json;
+    expect(cc.saldoCentavos).toBe(3800000 + 16200000);
+    expect(cc.lineas.some((l: { tipo: string }) => l.tipo === 'ajuste')).toBe(true);
+    expect((await pedir('GET', '/proveedores/saldos')).json[prov].saldoCentavos).toBe(20000000);
+    expect(await saldo('Efectivo')).toBe(efe);
+    expect((await pedir('POST', `/proveedores/ajustes/${a.json.id}/anular`, { motivo: 'prueba' })).status).toBe(200);
+    cc = (await pedir('GET', `/proveedores/${prov}/cuenta-corriente`)).json;
+    expect(cc.saldoCentavos).toBe(3800000);
+  });
 });
 
 describe('permisos', () => {
