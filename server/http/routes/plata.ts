@@ -210,6 +210,13 @@ export async function rutasPlata(app: FastifyInstance, { base, requiere, conIdem
     return conIdempotencia(base, req, reply, (db) => gs.crearPago(ctx(req, db), d));
   });
   app.post('/pagos-proveedores/:id/anular', async (req) => { requiere(req, 'caja', 'anular'); return base.tx((db) => gs.anularPago(ctx(req, db), idDe(req), motivo.parse(req.body).motivo)); });
+  app.post('/proveedores/:id/ajustes', async (req, reply) => {
+    requiere(req, 'caja', 'aprobar');
+    if (!puede(req, 'costos')) throw new ErrorNegocio('Ajustar la cuenta corriente requiere ver costos', 403);
+    const d = z.object({ fecha, importeCentavos: entero, motivo: z.string() }).parse(req.body);
+    return conIdempotencia(base, req, reply, (db) => gs.crearAjusteProveedor(ctx(req, db), { ...d, proveedorId: idDe(req) }));
+  });
+  app.post('/proveedores/ajustes/:id/anular', async (req) => { requiere(req, 'caja', 'anular'); return base.tx((db) => gs.anularAjusteProveedor(ctx(req, db), idDe(req), motivo.parse(req.body).motivo)); });
   /** Cuenta corriente: recibido valorizado (es un costo) menos pagos. Requiere ver caja y costos. */
   app.get('/proveedores/:id/cuenta-corriente', async (req) => {
     requiere(req, 'caja');

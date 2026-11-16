@@ -72,6 +72,10 @@ export const esquemasConfig = {
       activo: z.boolean(),
     })),
   }),
+  reposicion: z.object({
+    /** Cada venta suma lo vendido a la lista "para pedir" de su proveedor. */
+    automatica: z.boolean(),
+  }),
   inventario: z.object({
     stockMinimoPorDefecto: z.number().int().nonnegative(),
     permitirVentaSinStock: z.boolean(),
@@ -114,6 +118,7 @@ export const CONFIG_POR_DEFECTO: { [K in ClaveConfig]: ValorConfig<K> } = {
   precios: { metodoPorDefecto: 'margen', margenObjetivoBp: 5000, markupObjetivoBp: 10000, redondeoCentavos: 50000 },
   costos: { componentes: [] },
   alertas: { diasArqueo: 7, diasLiquidacion: 10, diasBackup: 2, diasSinVenta: 90 },
+  reposicion: { automatica: true },
   inventario: { stockMinimoPorDefecto: 1, permitirVentaSinStock: false },
   backups: { carpeta: null, cadaHoras: 4, retenerDiarios: 30, retenerMensuales: 12 },
 };

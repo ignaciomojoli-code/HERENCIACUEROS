@@ -5,6 +5,7 @@
  * Comisiones: si la plata entra a una cuenta común (ej. QR de Mercado Pago), la comisión estimada se descuenta
  * en el momento. Si entra a "tarjetas a liquidar", la comisión real aparece al cargar la liquidación.
  */
+import { quitarVenta, sumarVenta } from './reposicion.js';
 import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import { colores, cuentas, formasPago, listasPrecio, modelos, movimientosStock, precios, talles, variantes, ventaItems, ventaPagos, ventas } from '../db/schema.js';
 import type { DB } from '../db/index.js';
@@ -76,6 +77,7 @@ export function crearVenta(ctx: Ctx, d: DatosVenta) {
       registrarCaja(ctx, { fecha: d.fecha, cuentaId: p.cuenta.id, importeCentavos: -comision, tipo: 'comision', concepto: `Comisión venta V-${v.numero} · ${p.forma.nombre}`, refTipo: 'venta', refId: v.id });
     }
   }
+  sumarVenta(ctx, v.id, d.items);
   auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'crear', entidad: 'venta', entidadId: v.id, despues: { numero: v.numero, fecha: d.fecha, totalCentavos: total, items: d.items, pagos: d.pagos } });
   return { id: v.id, numero: v.numero, totalCentavos: total };
 }
@@ -93,6 +95,7 @@ export function anularVenta(ctx: Ctx, id: number, motivo: string) {
   }
   revertirMovimientos(ctx, { refTipo: 'venta', refId: id }, `venta V-${v.numero} anulada: ${motivo.trim()}`, fecha);
   ctx.db.update(ventas).set({ estado: 'anulada', motivoAnulacion: motivo.trim(), actualizadoEn: ahora() }).where(eq(ventas.id, id)).run();
+  quitarVenta(ctx, id, v.numero);
   auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'anular', entidad: 'venta', entidadId: id, detalle: motivo });
   return { ok: true };
 }

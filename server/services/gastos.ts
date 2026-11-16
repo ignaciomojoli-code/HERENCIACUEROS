@@ -6,7 +6,7 @@
 import { comprasMaterialPorProveedor, ingresosMaterialDeProveedor } from './costos.js';
 import { and, asc, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
-import { categoriasGasto, compras, cuentas, gastos, movimientosCaja, pagosProveedor, proveedores } from '../db/schema.js';
+import { ajustesProveedor, categoriasGasto, compras, cuentas, gastos, movimientosCaja, pagosProveedor, proveedores } from '../db/schema.js';
 import type { DB } from '../db/index.js';
 import { ahora } from './tiempo.js';
 import { auditar } from './auditoria.js';
@@ -194,6 +194,32 @@ export function listarPagos(db: DB, f: { proveedorId?: number; desde?: string; h
     .map((r) => ({ ...r.p, proveedor: r.proveedor, cuenta: r.cuenta, compraNumero: r.compraNumero }));
 }
 
+/** Ajuste de cuenta corriente (saldo inicial, redondeos, notas de crédito). Positivo = se le debe más. */
+export function crearAjusteProveedor(ctx: Ctx, d: { fecha: string; proveedorId: number; importeCentavos: number; motivo: string }) {
+  if (!Number.isInteger(d.importeCentavos) || d.importeCentavos === 0) throw new ErrorNegocio('El importe del ajuste no puede ser cero');
+  if (!d.motivo?.trim()) throw new ErrorNegocio('Indicá el motivo del ajuste');
+  const p = ctx.db.select().from(proveedores).where(eq(proveedores.id, d.proveedorId)).get();
+  if (!p) throw noEncontrado('El proveedor');
+  const t = ahora();
+  const a = ctx.db.insert(ajustesProveedor).values({ fecha: d.fecha, proveedorId: d.proveedorId, importeCentavos: d.importeCentavos, motivo: d.motivo.trim(), usuarioId: ctx.usuarioId, creadoEn: t, actualizadoEn: t }).returning().get();
+  auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'crear', entidad: 'ajuste_proveedor', entidadId: a.id, despues: a });
+  return a;
+}
+
+export function anularAjusteProveedor(ctx: Ctx, id: number, motivo: string) {
+  if (!motivo?.trim()) throw new ErrorNegocio('Indicá el motivo de la anulación');
+  const a = ctx.db.select().from(ajustesProveedor).where(eq(ajustesProveedor.id, id)).get();
+  if (!a) throw noEncontrado('El ajuste');
+  if (a.estado === 'anulado') throw new ErrorNegocio('El ajuste ya está anulado');
+  ctx.db.update(ajustesProveedor).set({ estado: 'anulado', motivoAnulacion: motivo.trim(), actualizadoEn: ahora() }).where(eq(ajustesProveedor.id, id)).run();
+  auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'anular', entidad: 'ajuste_proveedor', entidadId: id, detalle: motivo });
+  return { ok: true };
+}
+
+export function listarAjustesProveedor(db: DB, proveedorId: number) {
+  return db.select().from(ajustesProveedor).where(eq(ajustesProveedor.proveedorId, proveedorId)).orderBy(desc(ajustesProveedor.fecha), desc(ajustesProveedor.id)).all();
+}
+
 /** Cuenta corriente de proveedores: lo recibido (valorizado al costo del pedido) menos lo pagado. Positivo = se le debe. */
 export function saldosProveedores(db: DB, proveedorIds?: number[]) {
   const pagado = db.select({ p: pagosProveedor.proveedorId, s: sql<number>`sum(${pagosProveedor.importeCentavos})` }).from(pagosProveedor)
@@ -203,9 +229,11 @@ export function saldosProveedores(db: DB, proveedorIds?: number[]) {
     from recepcion_items ri join recepciones r on r.id = ri.recepcion_id join compras c on c.id = r.compra_id
     where r.estado = 'activa' and c.estado != 'anulada' group by c.proveedor_id`).filter((x) => !proveedorIds || proveedorIds.includes(x.p));
   const mat = comprasMaterialPorProveedor(db).filter((x) => !proveedorIds || proveedorIds.includes(x.p));
-  const ids = new Set([...pagado.map((x) => x.p), ...recibido.map((x) => x.p), ...mat.map((x) => x.p)]);
+  const aj = db.select({ p: ajustesProveedor.proveedorId, s: sql<number>`sum(${ajustesProveedor.importeCentavos})` }).from(ajustesProveedor)
+    .where(and(eq(ajustesProveedor.estado, 'activo'), proveedorIds ? inArray(ajustesProveedor.proveedorId, proveedorIds) : undefined)).groupBy(ajustesProveedor.proveedorId).all();
+  const ids = new Set([...pagado.map((x) => x.p), ...recibido.map((x) => x.p), ...mat.map((x) => x.p), ...aj.map((x) => x.p)]);
   return new Map([...ids].map((id) => {
-    const r = Number(recibido.find((x) => x.p === id)?.s ?? 0) + Number(mat.find((x) => x.p === id)?.s ?? 0);
+    const r = Number(recibido.find((x) => x.p === id)?.s ?? 0) + Number(mat.find((x) => x.p === id)?.s ?? 0) + Number(aj.find((x) => x.p === id)?.s ?? 0);
     const pg = Number(pagado.find((x) => x.p === id)?.s ?? 0);
     return [id, { recibidoCentavos: r, pagadoCentavos: pg, saldoCentavos: r - pg }];
   }));
@@ -224,6 +252,8 @@ export function cuentaCorrienteProveedor(db: DB, proveedorId: number) {
     ...ingresosMaterialDeProveedor(db, proveedorId).map((m) => ({ fecha: m.fecha, orden: 0, tipo: 'material' as const, refId: m.id,
       detalle: `${m.tipo === 'anulacion' ? 'Anula compra de ' : 'Compra de '}${m.material} · ${Math.abs(m.cantidadMil) / 1000} ${m.unidad}${m.comprobante ? ' · ' + m.comprobante : ''}`,
       debeCentavos: Math.max(0, m.importeCentavos), haberCentavos: Math.max(0, -m.importeCentavos) })),
+    ...listarAjustesProveedor(db, proveedorId).filter((a) => a.estado === 'activo').map((a) => ({ fecha: a.fecha, orden: 0, tipo: 'ajuste' as const, refId: a.id, detalle: `Ajuste: ${a.motivo}`,
+      debeCentavos: Math.max(0, a.importeCentavos), haberCentavos: Math.max(0, -a.importeCentavos) })),
     ...pagos.map((p) => ({ fecha: p.fecha, orden: 1, tipo: 'pago' as const, refId: p.id, detalle: `Pago PP-${p.numero} · ${p.cuenta}${p.notas ? ' · ' + p.notas : ''}`, debeCentavos: 0, haberCentavos: p.importeCentavos })),
   ].sort((a, b) => a.fecha.localeCompare(b.fecha) || a.orden - b.orden);
   let saldo = 0;

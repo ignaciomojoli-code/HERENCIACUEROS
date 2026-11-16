@@ -1,3 +1,4 @@
+import { PaginaParaPedir } from './paginas/ParaPedir';
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
@@ -80,6 +81,7 @@ function App() {
           {puede('stock') && <Route path="/conteos" element={<PaginaConteos />} />}
           {puede('stock') && <Route path="/conteos/:id" element={<PaginaConteo />} />}
           {puede('compras') && <Route path="/compras" element={<PaginaCompras />} />}
+          {puede('compras') && <Route path="/para-pedir" element={<PaginaParaPedir />} />}
           {puede('compras', 'crear') && <Route path="/compras/nuevo" element={<PaginaCompraForm />} />}
           {puede('compras') && <Route path="/compras/:id" element={<PaginaCompra />} />}
           {puede('compras', 'modificar') && <Route path="/compras/:id/editar" element={<PaginaCompraForm />} />}

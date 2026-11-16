@@ -69,6 +69,10 @@ export function PaginaConfiguracion() {
           <label className="flex items-center gap-2 self-end pb-2 text-sm"><input type="checkbox" disabled={!edita} checked={c.inventario.permitirVentaSinStock} onChange={(e) => set('inventario', 'permitirVentaSinStock', e.target.checked)} />Permitir vender sin stock</label>
         </> })}
 
+        {Seccion({ clave: 'reposicion', titulo: 'Lista para pedir', sub: 'Lo vendido se suma a la lista de su proveedor (Compras → Para pedir).', children: <>
+          <label className="flex items-center gap-2 pb-2 text-sm"><input type="checkbox" disabled={!edita} checked={c.reposicion.automatica} onChange={(e) => set('reposicion', 'automatica', e.target.checked)} />Sumar cada venta a la lista para pedir</label>
+        </> })}
+
         {Seccion({ clave: 'alertas', titulo: 'Alertas del panel', sub: 'Cuándo avisar en el inicio. Son avisos: no frenan ninguna operación.', children: <>
           <Campo etiqueta="Arqueo de efectivo: avisar después de (días)"><input className="entrada" type="number" min={1} disabled={!edita} value={c.alertas.diasArqueo} onChange={(e) => set('alertas', 'diasArqueo', Number(e.target.value))} /></Campo>
           <Campo etiqueta="Tarjetas sin liquidar: avisar después de (días)"><input className="entrada" type="number" min={1} disabled={!edita} value={c.alertas.diasLiquidacion} onChange={(e) => set('alertas', 'diasLiquidacion', Number(e.target.value))} /></Campo>

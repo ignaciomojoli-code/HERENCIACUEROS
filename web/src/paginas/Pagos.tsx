@@ -12,7 +12,7 @@ import { Tarjeta } from './Ventas';
 
 interface Proveedor { id: number; nombre: string; activo: boolean }
 interface Pago { id: number; numero: number; fecha: string; proveedorId: number; proveedor: string; compraId: number | null; compraNumero: number | null; cuenta: string; importeCentavos: number; comprobante: string | null; notas: string | null; estado: 'activo' | 'anulado'; motivoAnulacion: string | null }
-interface CuentaCorriente { proveedor: { id: number; nombre: string }; saldoCentavos: number; pendienteEntregaCentavos: number; lineas: { fecha: string; tipo: 'recepcion' | 'pago'; refId: number; detalle: string; debeCentavos: number; haberCentavos: number; saldoCentavos: number }[] }
+interface CuentaCorriente { proveedor: { id: number; nombre: string }; saldoCentavos: number; pendienteEntregaCentavos: number; lineas: { fecha: string; tipo: 'recepcion' | 'material' | 'pago' | 'ajuste'; refId: number; detalle: string; debeCentavos: number; haberCentavos: number; saldoCentavos: number }[] }
 type Saldos = Record<string, { recibidoCentavos: number; pagadoCentavos: number; saldoCentavos: number }>;
 
 export function PaginaPagos() {
@@ -29,10 +29,16 @@ export function PaginaPagos() {
   const [nuevo, setNuevo] = useState(false);
   const [anular, setAnular] = useState<Pago | null>(null);
   const [motivo, setMotivo] = useState('');
+  const [ajustar, setAjustar] = useState(false);
+  const [anularAjuste, setAnularAjuste] = useState<{ refId: number; detalle: string } | null>(null);
   const inv = () => queriesPlata.forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
   const anu = useMutation({
     mutationFn: () => api.post(`/pagos-proveedores/${anular!.id}/anular`, { motivo }),
     onSuccess: () => { avisar('Pago anulado'); setAnular(null); setMotivo(''); inv(); }, onError: avisarError,
+  });
+  const anuAj = useMutation({
+    mutationFn: () => api.post(`/proveedores/ajustes/${anularAjuste!.refId}/anular`, { motivo }),
+    onSuccess: () => { avisar('Ajuste anulado'); setAnularAjuste(null); setMotivo(''); inv(); }, onError: avisarError,
   });
   const nombre = (id: string) => provs.data?.find((p) => String(p.id) === id)?.nombre ?? `#${id}`;
   const conSaldo = Object.entries(saldos.data ?? {}).filter(([, s]) => s.saldoCentavos !== 0).sort((a, b) => b[1].saldoCentavos - a[1].saldoCentavos);
@@ -64,13 +70,17 @@ export function PaginaPagos() {
             <Tarjeta titulo="Saldo" valor={cc.data.saldoCentavos >= 0 ? pesos(cc.data.saldoCentavos) : `A favor ${pesos(-cc.data.saldoCentavos)}`} sub={cc.data.saldoCentavos > 0 ? 'Se le debe' : cc.data.saldoCentavos < 0 ? 'Se le pagó de más / adelanto' : 'Al día'} tono={cc.data.saldoCentavos > 0 ? 'bordo' : undefined} />
             <Tarjeta titulo="Pedido y todavía no entregado" valor={pesos(cc.data.pendienteEntregaCentavos)} sub={<Link className="underline" to={`/compras?proveedor=${proveedorId}`}>Ver pedidos</Link>} />
           </div>
-          <h2 className="mb-2 text-lg font-bold">Cuenta corriente</h2>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h2 className="text-lg font-bold">Cuenta corriente</h2>
+            {puede('caja', 'aprobar') && <button className="btn-secundario btn-chico" onClick={() => setAjustar(true)}>Ajustar saldo</button>}
+          </div>
           {!cc.data.lineas.length ? <Vacio>Sin movimientos.</Vacio> : (
             <div className="tarjeta mb-6 overflow-x-auto">
               <table className="tabla">
-                <thead><tr><th>Fecha</th><th>Detalle</th><th className="num">Entregó</th><th className="num">Pagado</th><th className="num">Saldo</th></tr></thead>
+                <thead><tr><th>Fecha</th><th>Detalle</th><th className="num">Entregó</th><th className="num">Pagado</th><th className="num">Saldo</th><th /></tr></thead>
                 <tbody>{cc.data.lineas.map((l, i) => (
-                  <tr key={i}><td className="whitespace-nowrap">{fechaCorta(l.fecha)}</td><td>{l.detalle}</td><td className="num">{l.debeCentavos ? pesos(l.debeCentavos) : ''}</td><td className="num">{l.haberCentavos ? pesos(l.haberCentavos) : ''}</td><td className="num font-medium">{pesos(l.saldoCentavos)}</td></tr>
+                  <tr key={i}><td className="whitespace-nowrap">{fechaCorta(l.fecha)}</td><td>{l.detalle}</td><td className="num">{l.debeCentavos ? pesos(l.debeCentavos) : ''}</td><td className="num">{l.haberCentavos ? pesos(l.haberCentavos) : ''}</td><td className="num font-medium">{pesos(l.saldoCentavos)}</td>
+                    <td className="text-right">{l.tipo === 'ajuste' && puede('caja', 'anular') && <button className="btn-secundario btn-chico" onClick={() => setAnularAjuste(l)}>Anular</button>}</td></tr>
                 ))}</tbody>
               </table>
             </div>
@@ -96,6 +106,13 @@ export function PaginaPagos() {
         </div>
       )}
       {nuevo && <ModalPago proveedores={(provs.data ?? []).filter((p) => p.activo)} proveedorInicial={Number(proveedorId) || 0} onCerrar={() => setNuevo(false)} onListo={inv} />}
+      {ajustar && cc.data && <ModalAjuste proveedor={cc.data.proveedor} onCerrar={() => setAjustar(false)} onListo={inv} />}
+      {anularAjuste && (
+        <Confirmar titulo="Anular ajuste" textoBoton="Anular" peligro ocupado={anuAj.isPending} onCerrar={() => { setAnularAjuste(null); setMotivo(''); }} onConfirmar={() => anuAj.mutate()}>
+          <p>{anularAjuste.detalle}. El saldo se recalcula; el ajuste queda registrado como anulado.</p>
+          <Campo etiqueta="Motivo"><input className="entrada" value={motivo} onChange={(e) => setMotivo(e.target.value)} /></Campo>
+        </Confirmar>
+      )}
       {anular && (
         <Confirmar titulo={`Anular pago PP-${anular.numero}`} textoBoton="Anular" peligro ocupado={anu.isPending} onCerrar={() => { setAnular(null); setMotivo(''); }} onConfirmar={() => anu.mutate()}>
           <p>Vuelven {pesos(anular.importeCentavos)} a {anular.cuenta} y el saldo con {anular.proveedor} se recalcula.</p>
@@ -138,6 +155,34 @@ function ModalPago({ proveedores, proveedorInicial, onCerrar, onListo }: { prove
           <Campo etiqueta="Notas (opcional)"><input className="entrada" value={d.notas} onChange={(e) => setD({ ...d, notas: e.target.value })} /></Campo>
         </div>
         <div className="flex justify-end gap-2"><button type="button" className="btn-secundario" onClick={onCerrar}>Cancelar</button><button className="btn-primario" disabled={!valido || m.isPending}>{m.isPending ? 'Guardando…' : 'Registrar pago'}</button></div>
+      </form>
+    </Modal>
+  );
+}
+
+/** Ajuste de cuenta corriente: saldo inicial, redondeos o notas de crédito. No mueve plata ni stock. */
+function ModalAjuste({ proveedor, onCerrar, onListo }: { proveedor: { id: number; nombre: string }; onCerrar: () => void; onListo: () => void }) {
+  const [d, setD] = useState({ fecha: hoy(), sentido: 1, importe: null as number | null, motivo: '' });
+  const m = useMutation({
+    mutationFn: () => api.post(`/proveedores/${proveedor.id}/ajustes`, { fecha: d.fecha, importeCentavos: d.sentido * (d.importe ?? 0), motivo: d.motivo }, true),
+    onSuccess: () => { avisar('Ajuste registrado'); onListo(); onCerrar(); }, onError: avisarError,
+  });
+  const valido = d.importe && d.importe > 0 && d.motivo.trim();
+  return (
+    <Modal titulo={`Ajustar saldo con ${proveedor.nombre}`} onCerrar={onCerrar}>
+      <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (valido) m.mutate(); }}>
+        <p className="text-sm text-carbon/70">Para cargar un saldo inicial o corregir una diferencia. No mueve plata ni stock: solo cambia cuánto se le debe.</p>
+        <Campo etiqueta="El ajuste…">
+          <select className="entrada" value={d.sentido} onChange={(e) => setD({ ...d, sentido: Number(e.target.value) })}>
+            <option value={1}>Suma a lo que se le debe</option><option value={-1}>Resta a lo que se le debe (a favor nuestro)</option>
+          </select>
+        </Campo>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Campo etiqueta="Fecha"><input className="entrada" type="date" value={d.fecha} onChange={(e) => setD({ ...d, fecha: e.target.value })} /></Campo>
+          <Campo etiqueta="Importe"><Importe valor={d.importe} onCambio={(v) => setD({ ...d, importe: v })} /></Campo>
+        </div>
+        <Campo etiqueta="Motivo"><input className="entrada" value={d.motivo} onChange={(e) => setD({ ...d, motivo: e.target.value })} placeholder="Ej.: saldo al 16/10 según planilla" /></Campo>
+        <div className="flex justify-end gap-2"><button type="button" className="btn-secundario" onClick={onCerrar}>Cancelar</button><button className="btn-primario" disabled={!valido || m.isPending}>{m.isPending ? 'Guardando…' : 'Registrar ajuste'}</button></div>
       </form>
     </Modal>
   );
