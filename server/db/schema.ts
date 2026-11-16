@@ -426,11 +426,32 @@ export const arqueos = sqliteTable('arqueos', {
 
 // ───────────────────────── Ventas ─────────────────────────
 
+/** Clientes: para ventas que quedan debiendo (cobros pendientes) y para saber quién compra. */
+export const clientes = sqliteTable('clientes', {
+  id: id(),
+  nombre: text('nombre').notNull(),
+  telefono: text('telefono'),
+  email: text('email'),
+  documento: text('documento'),
+  notas: text('notas'),
+  activo: activo(),
+  esDemo: esDemo(),
+  creadoEn: creadoEn(),
+  actualizadoEn: actualizadoEn(),
+}, (t) => [index('clientes_nombre_idx').on(t.nombre)]);
+
 export const ventas = sqliteTable('ventas', {
   id: id(),
   numero: integer('numero').notNull().unique(),
   fecha: text('fecha').notNull(),
+  /** Texto libre (ventas viejas) o el nombre del cliente elegido. */
   cliente: text('cliente'),
+  clienteId: integer('cliente_id').references(() => clientes.id),
+  /** Descuento sobre el total de la venta (además de lo que se haya cambiado en el precio de cada producto). */
+  descuentoCentavos: integer('descuento_centavos').notNull().default(0),
+  motivoDescuento: text('motivo_descuento'),
+  /** Sube cada vez que se edita la venta; las versiones anteriores quedan en venta_versiones. */
+  version: integer('version').notNull().default(1),
   /** Lista con la que se armaron los precios (efectivo o tarjeta). */
   listaPrecioId: integer('lista_precio_id').references(() => listasPrecio.id),
   estado: text('estado', { enum: ['confirmada', 'anulada'] }).notNull().default('confirmada'),
@@ -468,7 +489,24 @@ export const ventaPagos = sqliteTable('venta_pagos', {
   comisionEstimadaCentavos: integer('comision_estimada_centavos').notNull().default(0),
   /** Comisión real, si se conoce (ej. al ver la liquidación). null = se usa la estimada. */
   comisionRealCentavos: integer('comision_real_centavos'),
+  /** Cobro posterior a la venta (cuenta corriente del cliente). null = se cobró al vender. */
+  fecha: text('fecha'),
+  estado: text('estado', { enum: ['activo', 'anulado'] }).notNull().default('activo'),
+  motivoAnulacion: text('motivo_anulacion'),
+  /** Liquidación de tarjeta que incluyó este cobro (grupo de caja). La comisión real sale de ahí. */
+  liquidacion: text('liquidacion'),
 }, (t) => [index('venta_pagos_venta_idx').on(t.ventaId)]);
+
+/** Foto de cada versión anterior de una venta editada (qué tenía, quién la cambió y por qué). */
+export const ventaVersiones = sqliteTable('venta_versiones', {
+  id: id(),
+  ventaId: integer('venta_id').notNull().references(() => ventas.id),
+  version: integer('version').notNull(),
+  datos: text('datos', { mode: 'json' }).notNull(),
+  motivo: text('motivo').notNull(),
+  usuarioId: integer('usuario_id').references(() => usuarios.id),
+  fecha: text('fecha').notNull(),
+}, (t) => [index('venta_versiones_venta_idx').on(t.ventaId)]);
 
 // ───────────────────────── Gastos ─────────────────────────
 

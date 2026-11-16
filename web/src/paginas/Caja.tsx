@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeftRight, CreditCard, Download, HandCoins, LogOut, Receipt, Scale, ShoppingBag } from 'lucide-react';
@@ -7,12 +7,14 @@ import { useSesion } from '../sesion';
 import { Aviso, Campo, Cargando, Confirmar, Encabezado, ErrorCarga, Modal, Vacio, avisar, avisarError } from '../componentes/ui';
 import { Importe } from '../componentes/Importe';
 import { pesos } from '../formato';
+import { useClientes } from './Ventas';
 import { NOMBRE_TIPO_CAJA, TIPOS_CUENTA, enMoneda, fechaCorta, hoy, queriesPlata, useCuentas, type Cuenta } from '../plata';
 
 interface Mov {
   id: number; fecha: string; cuentaId: number; cuenta: string; moneda: 'ARS' | 'USD'; importeCentavos: number; importeArsCentavos: number; tipo: string;
   concepto: string; grupo: string | null; anulaId: number | null; anulado: boolean; manual: boolean; saldoCentavos: number;
 }
+interface CobroALiquidar { id: number; ventaId: number; numero: number; fecha: string; importeCentavos: number; comisionEstimadaCentavos: number; forma: string }
 type Operacion = 'pase' | 'liquidacion' | 'aporte' | 'retiro' | 'arqueo' | 'saldo';
 
 export function PaginaCaja() {
@@ -34,6 +36,9 @@ export function PaginaCaja() {
   const ctas = (cuentas.data ?? []).filter((c) => c.activo || (c.saldoCentavos ?? 0) !== 0);
   const totalArs = ctas.filter((c) => c.tipo !== 'externa').reduce((s, c) => s + (c.saldoArsCentavos ?? 0), 0);
   const cuentaSel = ctas.find((c) => String(c.id) === f.cuentaId);
+  const clientes = useClientes(puede('ventas'));
+  const deudores = (clientes.data ?? []).filter((c) => c.saldoCentavos > 0);
+  const deuda = deudores.reduce((s, c) => s + c.saldoCentavos, 0);
   const porPagina = 50;
   return (
     <>
@@ -67,6 +72,13 @@ export function PaginaCaja() {
             <div className="mt-1 font-titulo text-2xl font-bold">{pesos(totalArs)}</div>
             <div className="text-xs text-marfil/50">Incluye tarjetas a liquidar y dólares al cambio</div>
           </div>
+          {deuda > 0 && puede('ventas') && (
+            <Link to="/ventas?saldo=true&desde=2000-01-01" className="tarjeta p-4 transition-colors hover:border-dorado">
+              <div className="etiqueta">Falta cobrar a clientes</div>
+              <div className="mt-1 font-titulo text-2xl font-bold text-bordo">{pesos(deuda)}</div>
+              <div className="text-xs text-carbon/55">{deudores.length === 1 ? deudores[0].nombre : `${deudores.length} clientes`} · no está en ninguna cuenta</div>
+            </Link>
+          )}
         </div>
       )}
       <div className="mb-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -134,11 +146,16 @@ function ModalOperacion({ op, cuentas, cuentaInicial, onCerrar, onListo }: { op:
   const destino = cta(d.destinoId);
   const cuenta = cta(d.cuentaId);
   const cambio = op === 'pase' && origen && destino && origen.moneda !== destino.moneda;
+  const pendientes = useQuery({ queryKey: ['cobros-a-liquidar', d.origenId], queryFn: () => api.get<CobroALiquidar[]>('/caja/cobros-a-liquidar' + qs({ cuentaId: d.origenId })), enabled: op === 'liquidacion' && !!d.origenId });
+  const [elegidos, setElegidos] = useState<number[]>([]);
+  useEffect(() => setElegidos([]), [d.origenId]);
+  const sumaElegidos = (pendientes.data ?? []).filter((c) => elegidos.includes(c.id)).reduce((s, c) => s + c.importeCentavos, 0);
+  const bruto = elegidos.length ? sumaElegidos : d.bruto;
   const enviar = useMutation({
     mutationFn: () => {
       switch (op) {
         case 'pase': return api.post('/caja/pases', { fecha: d.fecha, origenId: d.origenId, destinoId: d.destinoId, importeCentavos: d.importe, importeDestinoCentavos: cambio ? d.importeDestino : null, concepto: d.concepto || null }, true);
-        case 'liquidacion': return api.post('/caja/liquidaciones', { fecha: d.fecha, origenId: d.origenId, destinoId: d.destinoId, brutoCentavos: d.bruto, netoCentavos: d.neto, concepto: d.concepto || null }, true);
+        case 'liquidacion': return api.post('/caja/liquidaciones', { fecha: d.fecha, origenId: d.origenId, destinoId: d.destinoId, brutoCentavos: bruto, netoCentavos: d.neto, concepto: d.concepto || null, cobroIds: elegidos.length ? elegidos : undefined }, true);
         case 'aporte': return api.post('/caja/aportes', { fecha: d.fecha, cuentaId: d.cuentaId, importeCentavos: d.importe, aportante: d.aportante, concepto: d.concepto || null }, true);
         case 'retiro': return api.post('/caja/retiros', { fecha: d.fecha, cuentaId: d.cuentaId, importeCentavos: d.importe, concepto: d.concepto }, true);
         case 'arqueo': return api.post('/caja/arqueos', { fecha: d.fecha, cuentaId: d.cuentaId, saldoRealCentavos: d.importe, notas: d.concepto || null }, true);
@@ -168,7 +185,7 @@ function ModalOperacion({ op, cuentas, cuentaInicial, onCerrar, onListo }: { op:
   );
   let valido = !!d.fecha;
   if (op === 'pase') valido &&= !!d.importe && d.origenId !== d.destinoId && (!cambio || !!d.importeDestino);
-  if (op === 'liquidacion') valido &&= !!d.neto && !!d.bruto && d.bruto >= d.neto;
+  if (op === 'liquidacion') valido &&= !!d.neto && !!bruto && bruto >= d.neto;
   if (op === 'aporte') valido &&= !!d.importe && !!d.aportante.trim();
   if (op === 'retiro') valido &&= !!d.importe && !!d.concepto.trim();
   if (op === 'arqueo' || op === 'saldo') valido &&= d.importe != null;
@@ -186,11 +203,26 @@ function ModalOperacion({ op, cuentas, cuentaInicial, onCerrar, onListo }: { op:
         {op === 'liquidacion' && <>
           {!aLiquidar.length && <Aviso tono="atencion">No hay una cuenta de tarjetas a liquidar.</Aviso>}
           <div className="grid gap-3 sm:grid-cols-2">{selector('Desde', d.origenId, aLiquidar, 'origenId')}{selector('Llega a', d.destinoId, destinosLiq, 'destinoId')}</div>
+          {!!pendientes.data?.length && (
+            <div>
+              <div className="mb-1 flex items-baseline justify-between"><span className="etiqueta">Ventas que entran en esta liquidación</span>
+                <button type="button" className="text-xs text-conac underline" onClick={() => setElegidos(elegidos.length ? [] : pendientes.data!.map((c) => c.id))}>{elegidos.length ? 'ninguna' : 'todas'}</button></div>
+              <div className="max-h-48 overflow-y-auto rounded-md border border-arena/60">
+                {pendientes.data.map((c) => (
+                  <label key={c.id} className="flex cursor-pointer items-center gap-2 border-b border-arena/40 px-3 py-1.5 text-sm last:border-0">
+                    <input type="checkbox" checked={elegidos.includes(c.id)} onChange={(e) => setElegidos(e.target.checked ? [...elegidos, c.id] : elegidos.filter((x) => x !== c.id))} />
+                    <span className="flex-1">{fechaCorta(c.fecha)} · V-{c.numero} <span className="text-xs text-carbon/55">{c.forma}</span></span><span className="tabular-nums">{pesos(c.importeCentavos)}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="mt-1 text-xs text-carbon/55">Marcalas para que cada venta guarde su comisión real. Si no marcás ninguna, cargá el bruto a mano.</p>
+            </div>
+          )}
           <div className="grid gap-3 sm:grid-cols-2">
-            <Campo etiqueta="Ventas que se liquidan (bruto)"><Importe valor={d.bruto} onCambio={(v) => setD({ ...d, bruto: v })} /></Campo>
+            <Campo etiqueta="Ventas que se liquidan (bruto)">{elegidos.length ? <div className="entrada bg-arena/20 text-right tabular-nums">{pesos(sumaElegidos)}</div> : <Importe valor={d.bruto} onCambio={(v) => setD({ ...d, bruto: v })} />}</Campo>
             <Campo etiqueta="Lo que llegó (neto)"><Importe valor={d.neto} onCambio={(v) => setD({ ...d, neto: v })} /></Campo>
           </div>
-          {d.bruto && d.neto ? <p className="text-sm">Comisiones y retenciones: <b>{pesos(d.bruto - d.neto)}</b>{d.bruto ? ` (${((1 - d.neto / d.bruto) * 100).toFixed(1).replace('.', ',')}%)` : ''}</p> : null}
+          {bruto && d.neto ? <p className="text-sm">Comisiones y retenciones: <b>{pesos(bruto - d.neto)}</b>{` (${((1 - d.neto / bruto) * 100).toFixed(1).replace('.', ',')}%)`}</p> : null}
           <Campo etiqueta="Nota (opcional)"><input className="entrada" value={d.concepto} onChange={(e) => setD({ ...d, concepto: e.target.value })} placeholder="Ej.: ventas del 27/10, adelanto" /></Campo>
         </>}
         {op === 'aporte' && <>

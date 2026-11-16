@@ -4,7 +4,7 @@
  * acá están las operaciones de caja propiamente dichas (pases, liquidaciones, aportes, retiros, arqueos).
  */
 import { and, asc, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
-import { arqueos, cuentas, formasPago, listasPrecio, movimientosCaja } from '../db/schema.js';
+import { arqueos, cuentas, formasPago, listasPrecio, movimientosCaja, ventaPagos, ventas } from '../db/schema.js';
 import type { DB } from '../db/index.js';
 import { ahora } from './tiempo.js';
 import { auditar } from './auditoria.js';
@@ -192,7 +192,26 @@ export function pase(ctx: Ctx, d: { fecha: string; origenId: number; destinoId: 
  * Liquidación de tarjetas: sale lo cobrado (bruto) de "a liquidar", entra el neto en la cuenta destino,
  * y la diferencia queda como comisión real (cargos + IVA + retenciones).
  */
-export function liquidar(ctx: Ctx, d: { fecha: string; origenId: number; destinoId: number; brutoCentavos: number; netoCentavos: number; concepto?: string | null }) {
+/** Cobros con tarjeta que todavía no entraron en ninguna liquidación (para elegir cuáles incluye). */
+export function cobrosALiquidar(db: DB, cuentaId: number) {
+  return db.select({ id: ventaPagos.id, ventaId: ventas.id, numero: ventas.numero, fecha: sql<string>`coalesce(${ventaPagos.fecha}, ${ventas.fecha})`, importeCentavos: ventaPagos.importeCentavos, comisionEstimadaCentavos: ventaPagos.comisionEstimadaCentavos, forma: formasPago.nombre })
+    .from(ventaPagos).innerJoin(ventas, eq(ventas.id, ventaPagos.ventaId)).innerJoin(formasPago, eq(formasPago.id, ventaPagos.formaPagoId))
+    .where(and(eq(ventaPagos.cuentaId, cuentaId), eq(ventaPagos.estado, 'activo'), eq(ventas.estado, 'confirmada'), sql`${ventaPagos.liquidacion} is null`))
+    .orderBy(asc(sql`coalesce(${ventaPagos.fecha}, ${ventas.fecha})`), asc(ventas.numero)).all();
+}
+
+/** Reparte la comisión real de una liquidación entre sus cobros, proporcional al importe (el resto de redondeo, al más grande). */
+export function repartirComision(total: number, importes: number[]) {
+  const suma = importes.reduce((s, x) => s + x, 0);
+  if (!suma) return importes.map(() => 0);
+  const partes = importes.map((x) => Math.floor((total * x) / suma));
+  const resto = total - partes.reduce((s, x) => s + x, 0);
+  const mayor = importes.indexOf(Math.max(...importes));
+  partes[mayor] += resto;
+  return partes;
+}
+
+export function liquidar(ctx: Ctx, d: { fecha: string; origenId: number; destinoId: number; brutoCentavos: number; netoCentavos: number; concepto?: string | null; cobroIds?: number[] }) {
   const o = cuentaOError(ctx.db, d.origenId);
   const de = cuentaOError(ctx.db, d.destinoId);
   if (o.tipo !== 'a_liquidar') throw new ErrorNegocio('El origen tiene que ser una cuenta de tarjetas a liquidar');
@@ -204,6 +223,16 @@ export function liquidar(ctx: Ctx, d: { fecha: string; origenId: number; destino
   registrarCaja(ctx, { fecha: d.fecha, cuentaId: de.id, importeCentavos: d.netoCentavos, tipo: 'liquidacion', concepto, grupo: g });
   const comision = d.brutoCentavos - d.netoCentavos;
   if (comision > 0) registrarCaja(ctx, { fecha: d.fecha, cuentaId: o.id, importeCentavos: -comision, tipo: 'comision', concepto: `Comisiones y retenciones · ${concepto}`, grupo: g });
+  // Si se indicó qué ventas incluye, la comisión real queda en cada una (para la ganancia por venta).
+  if (d.cobroIds?.length) {
+    const pendientes = cobrosALiquidar(ctx.db, o.id);
+    const elegidos = d.cobroIds.map((id) => pendientes.find((p) => p.id === id));
+    if (elegidos.some((p) => !p)) throw new ErrorNegocio('Hay cobros que no están pendientes de liquidar en esa cuenta');
+    const suma = elegidos.reduce((s, p) => s + p!.importeCentavos, 0);
+    if (suma !== d.brutoCentavos) throw new ErrorNegocio(`Las ventas elegidas suman ${(suma / 100).toLocaleString('es-AR')} y el bruto es ${(d.brutoCentavos / 100).toLocaleString('es-AR')}: tienen que coincidir`);
+    const partes = repartirComision(comision, elegidos.map((p) => p!.importeCentavos));
+    elegidos.forEach((p, i) => ctx.db.update(ventaPagos).set({ comisionRealCentavos: partes[i], liquidacion: g }).where(eq(ventaPagos.id, p!.id)).run());
+  }
   auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'liquidacion', entidad: 'caja', entidadId: g, despues: { ...d, comisionCentavos: comision } });
   return { grupo: g, comisionCentavos: comision };
 }
@@ -268,6 +297,8 @@ export function anularOperacion(ctx: Ctx, grupo: string, motivo: string) {
   if (movs.some((m) => m.tipo === 'anulacion')) throw new ErrorNegocio('La operación ya está anulada');
   if (!movs.every((m) => TIPOS_MANUALES.includes(m.tipo) || m.tipo === 'comision')) throw new ErrorNegocio('Esta operación se anula desde su venta, gasto o pago');
   revertirMovimientos(ctx, { grupo }, motivo.trim());
+  // Si era una liquidación con ventas elegidas, esos cobros vuelven a quedar pendientes (y sin comisión real).
+  ctx.db.update(ventaPagos).set({ liquidacion: null, comisionRealCentavos: null }).where(eq(ventaPagos.liquidacion, grupo)).run();
   auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'anular', entidad: 'caja', entidadId: grupo, detalle: motivo });
   return { ok: true };
 }

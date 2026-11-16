@@ -28,7 +28,8 @@ import { PaginaMovimientos } from './paginas/Movimientos';
 import { PaginaConteo, PaginaConteos } from './paginas/Conteos';
 import { PaginaStockInicial } from './paginas/StockInicial';
 import { PaginaCompra, PaginaCompraForm, PaginaCompras } from './paginas/Compras';
-import { PaginaVenta, PaginaVentaNueva, PaginaVentas } from './paginas/Ventas';
+import { PaginaVenta, PaginaVentaEditar, PaginaVentaNueva, PaginaVentas } from './paginas/Ventas';
+import { PaginaClientes } from './paginas/Clientes';
 import { PaginaCaja } from './paginas/Caja';
 import { PaginaReportes } from './paginas/Reportes';
 import { PaginaMateriales } from './paginas/Materiales';
@@ -95,6 +96,8 @@ function App() {
           {puede('ventas') && <Route path="/ventas" element={<PaginaVentas />} />}
           {puede('ventas', 'crear') && <Route path="/ventas/nueva" element={<PaginaVentaNueva />} />}
           {puede('ventas') && <Route path="/ventas/:id" element={<PaginaVenta />} />}
+          {puede('ventas', 'modificar') && <Route path="/ventas/:id/editar" element={<PaginaVentaEditar />} />}
+          {puede('ventas') && <Route path="/clientes" element={<PaginaClientes />} />}
           {puede('caja') && <Route path="/caja" element={<IrACaja />} />}
           {puede('caja') && <Route path="/pagos" element={<PaginaPagos />} />}
           {puede('caja') && <Route path="/cuentas" element={<PaginaCuentasFormas />} />}
