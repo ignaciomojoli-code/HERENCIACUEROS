@@ -29,6 +29,7 @@ import { PaginaStockInicial } from './paginas/StockInicial';
 import { PaginaCompra, PaginaCompraForm, PaginaCompras } from './paginas/Compras';
 import { PaginaVenta, PaginaVentaNueva, PaginaVentas } from './paginas/Ventas';
 import { PaginaCaja } from './paginas/Caja';
+import { PaginaReportes } from './paginas/Reportes';
 import { PaginaMateriales } from './paginas/Materiales';
 import { PaginaCosteo } from './paginas/Costeo';
 import { PaginaPreciosSugeridos } from './paginas/PreciosSugeridos';
@@ -89,6 +90,7 @@ function App() {
           {puede('caja') && <Route path="/pagos" element={<PaginaPagos />} />}
           {puede('caja') && <Route path="/cuentas" element={<PaginaCuentasFormas />} />}
           {puede('gastos') && <Route path="/gastos" element={<PaginaGastos />} />}
+          {puede('panel') && <Route path="/reportes" element={<PaginaReportes />} />}
           {puede('materiales') && <Route path="/materiales" element={<PaginaMateriales />} />}
           {puede('costos') && <Route path="/costeo" element={<PaginaCosteo />} />}
           {puede('precios') && puede('costos') && <Route path="/precios/sugeridos" element={<PaginaPreciosSugeridos />} />}
