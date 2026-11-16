@@ -57,6 +57,13 @@
       "when": 1794853147476,
       "tag": "0007_clientes_y_cobros",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1794854387889,
+      "tag": "0008_compras_comprobantes",
+      "breakpoints": true
     }
   ]
 }

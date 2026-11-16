@@ -7,6 +7,7 @@ import { useSesion } from '../sesion';
 import { Aviso, Campo, Cargando, Confirmar, Encabezado, ErrorCarga, Modal, Vacio, avisar, avisarError } from '../componentes/ui';
 import { Th, useOrden } from '../componentes/Orden';
 import { Importe } from '../componentes/Importe';
+import { Adjuntos } from '../componentes/Adjuntos';
 import { pesos } from '../formato';
 import { fechaCorta, hoy, inicioMes, queriesPlata, useCategoriasGasto, useCuentas, type CategoriaGasto } from '../plata';
 import { Tarjeta } from './Ventas';
@@ -163,6 +164,7 @@ function ModalGasto({ gasto, cats, onCerrar, onListo }: { gasto: Partial<Gasto>;
           {editando && <Campo etiqueta="Motivo de la corrección *" className="sm:col-span-2" ayuda="Queda en la auditoría junto con el antes y el después."><input className="entrada" value={d.motivo} onChange={(e) => setD({ ...d, motivo: e.target.value })} placeholder="Ej.: estaba en la categoría equivocada" /></Campo>}
         </div>
         {editando && <Aviso>El importe, la fecha y la cuenta no se editan: si están mal, anulá el gasto y cargalo de nuevo.</Aviso>}
+        {editando && gasto.id && <div><div className="etiqueta mb-1">Comprobante</div><Adjuntos entidad="gasto" entidadId={gasto.id} /></div>}
         <div className="flex justify-end gap-2"><button type="button" className="btn-secundario" onClick={onCerrar}>Cancelar</button><button className="btn-primario" disabled={!valido || m.isPending}>{m.isPending ? 'Guardando…' : 'Guardar'}</button></div>
       </form>
     </Modal>
