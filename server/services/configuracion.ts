@@ -48,6 +48,20 @@ export const esquemasConfig = {
     /** Redondeo de precios sugeridos, en centavos (ej. 50000 = a $500). */
     redondeoCentavos: z.number().int().nonnegative(),
   }),
+  costos: z.object({
+    /**
+     * Componentes de costo que se suman a la receta. 'fijo' = centavos por unidad; 'porcentaje_costo' = bp sobre materiales + mano de obra;
+     * 'porcentaje_precio' = bp sobre el precio de venta (comisiones, impuestos): no van al costo, se usan al calcular el precio sugerido.
+     */
+    componentes: z.array(z.object({
+      id: z.string().min(1),
+      nombre: z.string().min(1),
+      tipo: z.enum(['fijo', 'porcentaje_costo', 'porcentaje_precio']),
+      valor: z.number().int().nonnegative(),
+      categoriaId: z.number().int().nullable(),
+      activo: z.boolean(),
+    })),
+  }),
   inventario: z.object({
     stockMinimoPorDefecto: z.number().int().nonnegative(),
     permitirVentaSinStock: z.boolean(),
@@ -88,6 +102,7 @@ export const CONFIG_POR_DEFECTO: { [K in ClaveConfig]: ValorConfig<K> } = {
   regional: { moneda: 'ARS', formatoFecha: 'dd/mm/aaaa', zonaHoraria: 'America/Argentina/Buenos_Aires' },
   cotizaciones: { usdCentavos: null, brlCentavos: null, actualizadaEn: null },
   precios: { metodoPorDefecto: 'margen', margenObjetivoBp: 5000, markupObjetivoBp: 10000, redondeoCentavos: 50000 },
+  costos: { componentes: [] },
   inventario: { stockMinimoPorDefecto: 1, permitirVentaSinStock: false },
   backups: { carpeta: null, cadaHoras: 4, retenerDiarios: 30, retenerMensuales: 12 },
 };

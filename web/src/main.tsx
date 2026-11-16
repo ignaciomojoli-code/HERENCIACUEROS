@@ -29,6 +29,9 @@ import { PaginaStockInicial } from './paginas/StockInicial';
 import { PaginaCompra, PaginaCompraForm, PaginaCompras } from './paginas/Compras';
 import { PaginaVenta, PaginaVentaNueva, PaginaVentas } from './paginas/Ventas';
 import { PaginaCaja } from './paginas/Caja';
+import { PaginaMateriales } from './paginas/Materiales';
+import { PaginaCosteo } from './paginas/Costeo';
+import { PaginaPreciosSugeridos } from './paginas/PreciosSugeridos';
 import { PaginaGastos } from './paginas/Gastos';
 import { PaginaPagos } from './paginas/Pagos';
 import { PaginaCuentasFormas } from './paginas/CuentasFormas';
@@ -86,6 +89,9 @@ function App() {
           {puede('caja') && <Route path="/pagos" element={<PaginaPagos />} />}
           {puede('caja') && <Route path="/cuentas" element={<PaginaCuentasFormas />} />}
           {puede('gastos') && <Route path="/gastos" element={<PaginaGastos />} />}
+          {puede('materiales') && <Route path="/materiales" element={<PaginaMateriales />} />}
+          {puede('costos') && <Route path="/costeo" element={<PaginaCosteo />} />}
+          {puede('precios') && puede('costos') && <Route path="/precios/sugeridos" element={<PaginaPreciosSugeridos />} />}
           {puede('usuarios') && <Route path="/usuarios" element={<PaginaUsuarios />} />}
           {puede('configuracion') && <Route path="/configuracion" element={<PaginaConfiguracion />} />}
           {puede('auditoria') && <Route path="/auditoria" element={<PaginaAuditoria />} />}

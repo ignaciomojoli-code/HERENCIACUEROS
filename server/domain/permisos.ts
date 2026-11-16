@@ -16,6 +16,7 @@ export const MODULOS = {
   ventas: 'Ventas',
   caja: 'Caja, cuentas y pagos a proveedores',
   gastos: 'Gastos',
+  materiales: 'Materiales, recetas y producción',
   importacion: 'Importación de datos',
   usuarios: 'Usuarios y roles',
   configuracion: 'Configuración',
@@ -39,14 +40,14 @@ export const ROLES_POR_DEFECTO: { nombre: string; descripcion: string; permisos:
     nombre: 'Gerencia',
     descripcion: 'Todo lo operativo y los reportes; aprueba precios y anulaciones',
     permisos: {
-      panel: todo(), catalogo: todo(), costos: todo(), precios: todo(), proveedores: todo(), stock: todo(), compras: todo(), ventas: todo(), caja: todo(), gastos: todo(),
+      panel: todo(), catalogo: todo(), costos: todo(), precios: todo(), proveedores: todo(), stock: todo(), compras: todo(), ventas: todo(), caja: todo(), gastos: todo(), materiales: todo(),
       importacion: todo(), auditoria: ['ver', 'exportar'], configuracion: ['ver'], backups: ['ver'],
     },
   },
   {
     nombre: 'Administración',
     descripcion: 'Caja, gastos, pagos y cuentas corrientes; no cambia precios',
-    permisos: { panel: lectura, catalogo: ['ver', 'exportar'], costos: ['ver'], precios: ['ver', 'exportar'], proveedores: ['ver', 'crear', 'modificar', 'exportar'], stock: ['ver', 'exportar'], compras: ['ver', 'exportar'], ventas: ['ver', 'exportar'], caja: ['ver', 'crear', 'modificar', 'exportar'], gastos: ['ver', 'crear', 'modificar', 'exportar'] },
+    permisos: { panel: lectura, catalogo: ['ver', 'exportar'], costos: ['ver'], precios: ['ver', 'exportar'], proveedores: ['ver', 'crear', 'modificar', 'exportar'], stock: ['ver', 'exportar'], compras: ['ver', 'exportar'], ventas: ['ver', 'exportar'], caja: ['ver', 'crear', 'modificar', 'exportar'], gastos: ['ver', 'crear', 'modificar', 'exportar'], materiales: ['ver', 'exportar'] },
   },
   {
     nombre: 'Ventas',
@@ -56,12 +57,12 @@ export const ROLES_POR_DEFECTO: { nombre: string; descripcion: string; permisos:
   {
     nombre: 'Depósito',
     descripcion: 'Recepciones, entregas del taller, ajustes y conteos; no ve plata',
-    permisos: { catalogo: ['ver', 'crear', 'modificar'], proveedores: ['ver'], stock: ['ver', 'crear', 'modificar', 'exportar'], compras: ['ver', 'crear'] },
+    permisos: { catalogo: ['ver', 'crear', 'modificar'], proveedores: ['ver'], stock: ['ver', 'crear', 'modificar', 'exportar'], compras: ['ver', 'crear'], materiales: ['ver', 'crear', 'modificar'] },
   },
   {
     nombre: 'Compras',
     descripcion: 'Proveedores, órdenes de compra, facturas y costos',
-    permisos: { catalogo: ['ver', 'crear', 'modificar', 'exportar'], costos: ['ver', 'modificar'], precios: ['ver'], proveedores: todo(), stock: ['ver', 'exportar'], compras: todo(), importacion: ['ver', 'crear'] },
+    permisos: { catalogo: ['ver', 'crear', 'modificar', 'exportar'], costos: ['ver', 'modificar'], precios: ['ver'], proveedores: todo(), stock: ['ver', 'exportar'], compras: todo(), materiales: todo(), importacion: ['ver', 'crear'] },
   },
   { nombre: 'Consulta', descripcion: 'Solo lectura', permisos: { panel: lectura, catalogo: lectura, precios: lectura, proveedores: lectura, stock: lectura, compras: lectura, ventas: lectura } },
 ];
@@ -70,8 +71,8 @@ export const ROLES_POR_DEFECTO: { nombre: string; descripcion: string; permisos:
  * Módulos que se agregaron después de la primera versión. Al actualizar el sistema, los roles por defecto
  * reciben los permisos de estos módulos (los roles creados a mano no se tocan).
  */
-export const MODULOS_POR_VERSION: Record<number, Modulo[]> = { 2: ['stock', 'compras'], 3: ['ventas', 'caja', 'gastos'] };
-export const VERSION_PERMISOS = 3;
+export const MODULOS_POR_VERSION: Record<number, Modulo[]> = { 2: ['stock', 'compras'], 3: ['ventas', 'caja', 'gastos'], 4: ['materiales'] };
+export const VERSION_PERMISOS = 4;
 
 export function tienePermiso(permisos: MapaPermisos | Record<string, string[]>, modulo: Modulo, accion: Accion): boolean {
   const acc = (permisos as Record<string, string[]>)[modulo];

@@ -22,6 +22,13 @@
       "when": 1794507045332,
       "tag": "0002_ventas_caja_gastos",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1794508639306,
+      "tag": "0003_costos_produccion",
+      "breakpoints": true
     }
   ]
 }
