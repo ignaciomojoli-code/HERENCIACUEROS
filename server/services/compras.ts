@@ -3,6 +3,7 @@
  * Las recepciones de reventa actualizan el costo por promedio ponderado; las de confección (taller) no,
  * porque ahí se paga la mano de obra y el costo del producto se arma con materiales + confección.
  */
+import { devolverDePedido } from './reposicion.js';
 import { consumirPorProduccion, revertirProduccion } from './costos.js';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { colores, compraItems, compras, historialCostos, modelos, movimientosStock, proveedores, recepciones, recepcionItems, talles, variantes } from '../db/schema.js';
@@ -86,6 +87,7 @@ export function cambiarEstadoCompra(ctx: Ctx, id: number, accion: 'confirmar' | 
     estado = 'anulada';
   }
   const despues = ctx.db.update(compras).set({ estado, actualizadoEn: ahora() }).where(eq(compras.id, id)).returning().get();
+  if (estado === 'anulada') devolverDePedido(ctx, id);
   auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: accion === 'anular' ? 'anular' : 'modificar', entidad: 'compra', entidadId: id, antes: { estado: c.estado }, despues: { estado }, detalle: motivo });
   return despues;
 }

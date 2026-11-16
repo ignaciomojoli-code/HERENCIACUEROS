@@ -534,6 +534,26 @@ export const ajustesProveedor = sqliteTable('ajustes_proveedor', {
   actualizadoEn: actualizadoEn(),
 }, (t) => [index('ajustes_proveedor_prov_idx').on(t.proveedorId)]);
 
+/**
+ * Lista "para pedir": lo vendido (o agregado a mano) que hay que reponer, separado por proveedor.
+ * El proveedor sale del modelo (proveedor principal). No es una operación: al armar el pedido, las líneas pasan a
+ * 'pedido' con el número de compra; si ese pedido se anula, vuelven a 'pendiente'. Nada se borra.
+ */
+export const listaPedido = sqliteTable('lista_pedido', {
+  id: id(),
+  varianteId: integer('variante_id').notNull().references(() => variantes.id),
+  cantidad: integer('cantidad').notNull(),
+  origen: text('origen', { enum: ['venta', 'manual'] }).notNull(),
+  ventaId: integer('venta_id').references(() => ventas.id),
+  estado: text('estado', { enum: ['pendiente', 'pedido', 'descartado'] }).notNull().default('pendiente'),
+  compraId: integer('compra_id').references(() => compras.id),
+  motivo: text('motivo'),
+  usuarioId: integer('usuario_id').references(() => usuarios.id),
+  esDemo: esDemo(),
+  creadoEn: creadoEn(),
+  actualizadoEn: actualizadoEn(),
+}, (t) => [index('lista_pedido_estado_idx').on(t.estado), index('lista_pedido_variante_idx').on(t.varianteId)]);
+
 // ───────────────────────── Costos y producción ─────────────────────────
 
 /**
