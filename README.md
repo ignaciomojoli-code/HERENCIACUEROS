@@ -29,7 +29,7 @@ Siguiente etapa: carga de los datos reales, pruebas en el local e instalación.
 
 ## Instalación en la compu del local (Windows)
 
-1. Instalar **Node.js 22 LTS** desde nodejs.org (opciones por defecto).
+1. Instalar **Node.js 22** (`winget install OpenJS.NodeJS.22`; ojo: "LTS" ya apunta a otra versión) y el runtime de Visual C++ (`winget install Microsoft.VCRedist.2015+.x64`), que usa el módulo de contraseñas.
 2. Copiar esta carpeta a la compu (por ejemplo `C:\HerenciaCuero`).
 3. Doble clic en **`instalar.bat`** (una sola vez; tarda unos minutos).
 4. Doble clic en **`Iniciar Herencia.bat`**. Se abre el navegador; la primera vez pide crear el usuario administrador.

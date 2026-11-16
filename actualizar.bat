@@ -21,7 +21,9 @@ for /d %%D in ("%TMPDIR%\*") do set ORIGEN=%%D
 rem Copia el codigo nuevo sin tocar datos, dependencias ni compilados viejos.
 robocopy "%ORIGEN%" "%~dp0." /E /XD datos node_modules .git /NFL /NDL /NJH /NJS >nul
 if errorlevel 8 (echo Error copiando archivos & pause & exit /b 1)
-call npm ci || (echo Error instalando dependencias & pause & exit /b 1)
+rem better-sqlite3 ya trae el binario de Windows: sin scripts no hace falta Python ni compilador.
+call npm ci --ignore-scripts || (echo Error instalando dependencias & pause & exit /b 1)
+call npm rebuild esbuild || (echo Error preparando esbuild & pause & exit /b 1)
 call npm run build || (echo Error al compilar & pause & exit /b 1)
 rmdir /s /q "%TMPDIR%" & del "%TMPZIP%"
 echo.
