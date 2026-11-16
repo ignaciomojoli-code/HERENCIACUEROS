@@ -5,6 +5,8 @@ import type { Api } from '../app.js';
 import * as cj from '../../services/caja.js';
 import * as vt from '../../services/ventas.js';
 import * as gs from '../../services/gastos.js';
+import * as cb from '../../services/comprobantes.js';
+import { listarClientes } from '../../services/clientes.js';
 import { ErrorNegocio } from '../../services/errores.js';
 import { auditar } from '../../services/auditoria.js';
 import { aCsv, aXlsx, type ColumnaExport } from '../../services/exportar.js';
@@ -20,6 +22,7 @@ const fecha = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida (AAAA-MM-
 const entero = z.number().int();
 const opt = <T extends z.ZodTypeAny>(t: T) => t.nullable().optional();
 const motivo = z.object({ motivo: z.string() });
+const imputacion = z.object({ compraId: entero, importeCentavos: entero });
 /** Ganancia y costo de mercadería: solo para quien ve costos. */
 const GANANCIA = /^ganancia|^costoMercaderia/;
 
@@ -236,8 +239,25 @@ export async function rutasPlata(app: FastifyInstance, { base, requiere, conIdem
   });
   app.post('/pagos-proveedores', async (req, reply) => {
     requiere(req, 'caja', 'crear');
-    const d = z.object({ fecha, proveedorId: entero, compraId: opt(entero), cuentaId: entero, importeCentavos: entero, comprobante: opt(z.string()), notas: opt(z.string()) }).parse(req.body);
+    const d = z.object({ fecha, proveedorId: entero, compraId: opt(entero), cuentaId: entero, importeCentavos: entero, comprobante: opt(z.string()), notas: opt(z.string()), imputaciones: z.array(imputacion).optional() }).parse(req.body);
     return conIdempotencia(base, req, reply, (db) => gs.crearPago(ctx(req, db), d));
+  });
+  app.put('/pagos-proveedores/:id/imputaciones', async (req) => {
+    requiere(req, 'caja', 'modificar');
+    const d = z.object({ imputaciones: z.array(imputacion), motivo: opt(z.string()) }).parse(req.body);
+    return base.tx((db) => cb.imputarPago(ctx(req, db), idDe(req), d.imputaciones, d.motivo ?? undefined));
+  });
+  app.get('/proveedores/:id/comprobantes', async (req) => {
+    requiere(req, 'caja');
+    if (!puede(req, 'costos')) throw new ErrorNegocio('Los comprobantes muestran costos: tu rol no los puede ver', 403);
+    return cb.comprobantesProveedor(base.db, idDe(req));
+  });
+  /** Vista general: lo que se les debe a los proveedores (con vencimientos) y lo que deben los clientes. */
+  app.get('/cuentas-corrientes', async (req) => {
+    requiere(req, 'caja');
+    if (!puede(req, 'costos')) throw new ErrorNegocio('Las cuentas corrientes muestran costos: tu rol no las puede ver', 403);
+    const clientes = listarClientes(base.db).filter((c) => c.saldoCentavos > 0).map((c) => ({ id: c.id, nombre: c.nombre, saldoCentavos: c.saldoCentavos, ultimaCompra: c.ultimaCompra }));
+    return { proveedores: cb.vencimientosProveedores(base.db, gs.saldosProveedores(base.db)), clientes };
   });
   app.post('/pagos-proveedores/:id/anular', async (req) => { requiere(req, 'caja', 'anular'); return base.tx((db) => gs.anularPago(ctx(req, db), idDe(req), motivo.parse(req.body).motivo)); });
   app.post('/proveedores/:id/ajustes', async (req, reply) => {

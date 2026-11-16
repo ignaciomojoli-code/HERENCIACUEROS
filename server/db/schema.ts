@@ -9,7 +9,7 @@
  * - `esDemo` marca datos de demostración, que se pueden borrar sin tocar los reales.
  */
 import { sql } from 'drizzle-orm';
-import { sqliteTable, text, integer, uniqueIndex, index } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, uniqueIndex, index, blob } from 'drizzle-orm/sqlite-core';
 
 const id = () => integer('id').primaryKey({ autoIncrement: true });
 const creadoEn = () => text('creado_en').notNull();
@@ -318,6 +318,17 @@ export const compras = sqliteTable('compras', {
   fechaEsperada: text('fecha_esperada'),
   estado: text('estado', { enum: ['borrador', 'confirmada', 'cerrada', 'anulada'] }).notNull().default('borrador'),
   notas: text('notas'),
+  /** Comprobante del proveedor (factura, remito): número y fecha. */
+  comprobante: text('comprobante'),
+  fechaComprobante: text('fecha_comprobante'),
+  /** Descuento e impuestos del comprobante: ajustan lo que se le debe (no cambian el costo de los productos). */
+  descuentoCentavos: integer('descuento_centavos').notNull().default(0),
+  impuestosCentavos: integer('impuestos_centavos').notNull().default(0),
+  /** Lo arreglado para esta operación (puede diferir de lo habitual del proveedor). */
+  condicionPago: text('condicion_pago', { enum: ['al_pedir', 'al_recibir', 'a_plazo', 'cuenta_corriente'] }),
+  plazoPagoDias: integer('plazo_pago_dias'),
+  /** Vencimiento fijado a mano; si es null se calcula según la condición de pago. */
+  vencimiento: text('vencimiento'),
   usuarioId: integer('usuario_id').references(() => usuarios.id),
   esDemo: esDemo(),
   creadoEn: creadoEn(),
@@ -559,6 +570,32 @@ export const pagosProveedor = sqliteTable('pagos_proveedor', {
   creadoEn: creadoEn(),
   actualizadoEn: actualizadoEn(),
 }, (t) => [index('pagos_proveedor_prov_idx').on(t.proveedorId)]);
+
+/** A qué pedidos se aplica un pago (puede repartirse entre varios, o quedar una parte a cuenta). Se anula, no se borra. */
+export const imputacionesPago = sqliteTable('imputaciones_pago', {
+  id: id(),
+  pagoId: integer('pago_id').notNull().references(() => pagosProveedor.id),
+  compraId: integer('compra_id').notNull().references(() => compras.id),
+  importeCentavos: integer('importe_centavos').notNull(),
+  estado: text('estado', { enum: ['activa', 'anulada'] }).notNull().default('activa'),
+  usuarioId: integer('usuario_id').references(() => usuarios.id),
+  creadoEn: creadoEn(),
+}, (t) => [index('imputaciones_pago_idx').on(t.pagoId), index('imputaciones_compra_idx').on(t.compraId)]);
+
+/** Archivos adjuntos (foto de factura, remito). Se guardan dentro de la base para que entren en los backups. Se quitan, no se borran. */
+export const adjuntos = sqliteTable('adjuntos', {
+  id: id(),
+  entidad: text('entidad').notNull(),
+  entidadId: integer('entidad_id').notNull(),
+  nombre: text('nombre').notNull(),
+  tipo: text('tipo').notNull(),
+  tamano: integer('tamano').notNull(),
+  datos: blob('datos', { mode: 'buffer' }).notNull(),
+  estado: text('estado', { enum: ['activo', 'quitado'] }).notNull().default('activo'),
+  motivo: text('motivo'),
+  usuarioId: integer('usuario_id').references(() => usuarios.id),
+  creadoEn: creadoEn(),
+}, (t) => [index('adjuntos_entidad_idx').on(t.entidad, t.entidadId)]);
 
 /**
  * Ajuste de la cuenta corriente de un proveedor: saldo inicial al migrar, diferencias de redondeo, notas de crédito.

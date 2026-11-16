@@ -13,9 +13,11 @@ import { auditar } from './auditoria.js';
 import { ErrorNegocio, noEncontrado } from './errores.js';
 import { siguienteNumero } from './numeracion.js';
 import { registrarMovimiento, stockDeUna, type Ctx } from './stock.js';
+import { estadoPedido, imputacionesDePagos, imputadoPorCompra, listarAdjuntos, validarComprobante, valoresComprobante, vencimientoDe, type DatosComprobante } from './comprobantes.js';
+import { pagosProveedor } from '../db/schema.js';
 
 export interface ItemCompra { varianteId: number; cantidad: number; costoUnitarioCentavos: number; notas?: string | null }
-export interface DatosCompra { proveedorId: number; tipo: 'reventa' | 'confeccion'; fecha: string; fechaEsperada?: string | null; notas?: string | null; items: ItemCompra[] }
+export interface DatosCompra extends DatosComprobante { proveedorId: number; tipo: 'reventa' | 'confeccion'; fecha: string; fechaEsperada?: string | null; notas?: string | null; items: ItemCompra[] }
 
 function validarItems(db: DB, items: ItemCompra[]) {
   if (!items.length) throw new ErrorNegocio('Agregá al menos un producto');
@@ -37,10 +39,14 @@ function validarProveedor(db: DB, id: number) {
 }
 
 export function crearCompra(ctx: Ctx, d: DatosCompra, confirmar = false) {
-  validarProveedor(ctx.db, d.proveedorId);
+  const prov = validarProveedor(ctx.db, d.proveedorId);
   validarItems(ctx.db, d.items);
+  // Si no se indica la condición de pago de esta operación, se propone la habitual del proveedor.
+  const cond = d.condicionPago !== undefined ? d : { ...d, condicionPago: prov.condicionPago, plazoPagoDias: d.plazoPagoDias ?? prov.plazoPagoDias };
+  validarComprobante(cond);
   const t = ahora();
   const c = ctx.db.insert(compras).values({
+    ...valoresComprobante(cond),
     numero: siguienteNumero(ctx.db, 'compra'), proveedorId: d.proveedorId, tipo: d.tipo, fecha: d.fecha, fechaEsperada: d.fechaEsperada ?? null,
     notas: d.notas ?? null, estado: confirmar ? 'confirmada' : 'borrador', usuarioId: ctx.usuarioId, creadoEn: t, actualizadoEn: t,
   }).returning().get();
@@ -61,10 +67,11 @@ export function actualizarCompra(ctx: Ctx, id: number, d: DatosCompra) {
   if (antes.estado !== 'borrador') throw new ErrorNegocio('Solo se puede editar un pedido en borrador');
   validarProveedor(ctx.db, d.proveedorId);
   validarItems(ctx.db, d.items);
+  validarComprobante(d);
   const itemsAntes = ctx.db.select().from(compraItems).where(eq(compraItems.compraId, id)).all();
   ctx.db.delete(compraItems).where(eq(compraItems.compraId, id)).run(); // borrador: todavía no es una operación registrada
   ctx.db.insert(compraItems).values(d.items.map((i) => ({ compraId: id, varianteId: i.varianteId, cantidad: i.cantidad, costoUnitarioCentavos: i.costoUnitarioCentavos, notas: i.notas ?? null }))).run();
-  const despues = ctx.db.update(compras).set({ proveedorId: d.proveedorId, tipo: d.tipo, fecha: d.fecha, fechaEsperada: d.fechaEsperada ?? null, notas: d.notas ?? null, actualizadoEn: ahora() }).where(eq(compras.id, id)).returning().get();
+  const despues = ctx.db.update(compras).set({ ...valoresComprobante(d), proveedorId: d.proveedorId, tipo: d.tipo, fecha: d.fecha, fechaEsperada: d.fechaEsperada ?? null, notas: d.notas ?? null, actualizadoEn: ahora() }).where(eq(compras.id, id)).returning().get();
   auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'modificar', entidad: 'compra', entidadId: id, antes: { ...antes, items: itemsAntes }, despues: { ...despues, items: d.items } });
   return despues;
 }
@@ -202,16 +209,26 @@ export function obtenerCompra(db: DB, id: number) {
     .map((r) => ({ ...r.i, sku: r.sku, modelo: r.modelo, modeloId: r.modeloId, color: r.color, talle: r.talle, recibido: recibido.get(r.i.id) ?? 0, pendiente: r.i.cantidad - (recibido.get(r.i.id) ?? 0) }));
   const recs = db.select().from(recepciones).where(eq(recepciones.compraId, id)).orderBy(desc(recepciones.id)).all();
   const recItems = recs.length ? db.select({ r: recepcionItems, sku: variantes.sku }).from(recepcionItems).innerJoin(variantes, eq(variantes.id, recepcionItems.varianteId)).where(inArray(recepcionItems.recepcionId, recs.map((r) => r.id))).all() : [];
+  const recibidoCentavos = recItems.filter((x) => recs.find((r) => r.id === x.r.recepcionId)?.estado === 'activa').reduce((s, x) => s + x.r.cantidad * x.r.costoUnitarioCentavos, 0);
+  const ultimaRecepcion = recs.filter((r) => r.estado === 'activa').map((r) => r.fecha).sort().pop() ?? null;
+  const pagos = db.select().from(pagosProveedor).where(and(eq(pagosProveedor.proveedorId, c.proveedorId), eq(pagosProveedor.estado, 'activo'))).all();
+  const imps = imputacionesDePagos(db, pagos.map((p) => p.id)).filter((i) => i.compraId === id);
+  const pagadoCentavos = imps.reduce((s, i) => s + i.importeCentavos, 0);
+  const aPagarCentavos = c.estado === 'anulada' || c.estado === 'borrador' ? 0 : recibidoCentavos - c.descuentoCentavos + c.impuestosCentavos;
   return {
     ...c, proveedor: prov?.nombre ?? '—',
+    estadoPedido: estadoPedido(c, items.reduce((s, i) => s + i.cantidad, 0), items.reduce((s, i) => s + i.recibido, 0)),
+    vencimientoEfectivo: vencimientoDe(c, ultimaRecepcion),
     items,
     totalCentavos: items.reduce((s, i) => s + i.cantidad * i.costoUnitarioCentavos, 0),
-    recibidoCentavos: recItems.filter((x) => recs.find((r) => r.id === x.r.recepcionId)?.estado === 'activa').reduce((s, x) => s + x.r.cantidad * x.r.costoUnitarioCentavos, 0),
-    recepciones: recs.map((r) => ({ ...r, items: recItems.filter((x) => x.r.recepcionId === r.id).map((x) => ({ ...x.r, sku: x.sku })) })),
+    recibidoCentavos, aPagarCentavos, pagadoCentavos, saldoCentavos: aPagarCentavos - pagadoCentavos,
+    pagos: imps.map((i) => { const p = pagos.find((x) => x.id === i.pagoId)!; return { pagoId: p.id, numero: p.numero, fecha: p.fecha, importeCentavos: i.importeCentavos, totalPagoCentavos: p.importeCentavos }; }),
+    adjuntos: listarAdjuntos(db, 'compra', id),
+    recepciones: recs.map((r) => ({ ...r, adjuntos: listarAdjuntos(db, 'recepcion', r.id), items: recItems.filter((x) => x.r.recepcionId === r.id).map((x) => ({ ...x.r, sku: x.sku })) })),
   };
 }
 
-export function listarCompras(db: DB, f: { proveedorId?: number; estado?: string; pendientes?: boolean }) {
+export function listarCompras(db: DB, f: { proveedorId?: number; estado?: string; pendientes?: boolean; estadoPedido?: string }) {
   const conds = [];
   if (f.proveedorId) conds.push(eq(compras.proveedorId, f.proveedorId));
   if (f.estado) conds.push(eq(compras.estado, f.estado as 'borrador'));
@@ -220,10 +237,22 @@ export function listarCompras(db: DB, f: { proveedorId?: number; estado?: string
   const total = sql<number>`(select coalesce(sum(ci.cantidad * ci.costo_unitario_centavos), 0) from compra_items ci where ci.compra_id = ${compras.id})`;
   const recibidas = sql<number>`(select coalesce(sum(ri.cantidad), 0) from recepcion_items ri join recepciones r on r.id = ri.recepcion_id where r.compra_id = ${compras.id} and r.estado = 'activa')`;
   const recibidoImporte = sql<number>`(select coalesce(sum(ri.cantidad * ri.costo_unitario_centavos), 0) from recepcion_items ri join recepciones r on r.id = ri.recepcion_id where r.compra_id = ${compras.id} and r.estado = 'activa')`;
-  return db.select({ c: compras, proveedor: proveedores.nombre, pedidas, recibidas, totalCentavos: total, recibidoCentavos: recibidoImporte })
+  const ultima = sql<string | null>`(select max(r.fecha) from recepciones r where r.compra_id = ${compras.id} and r.estado = 'activa')`;
+  const filas = db.select({ c: compras, proveedor: proveedores.nombre, pedidas, recibidas, totalCentavos: total, recibidoCentavos: recibidoImporte, ultima })
     .from(compras).innerJoin(proveedores, eq(proveedores.id, compras.proveedorId))
-    .where(conds.length ? and(...conds) : undefined).orderBy(desc(compras.fecha), desc(compras.id)).all()
-    .map((r) => ({ ...r.c, proveedor: r.proveedor, pedidas: Number(r.pedidas), recibidas: Number(r.recibidas), totalCentavos: Number(r.totalCentavos), recibidoCentavos: Number(r.recibidoCentavos) }));
+    .where(conds.length ? and(...conds) : undefined).orderBy(desc(compras.fecha), desc(compras.id)).all();
+  const imputado = imputadoPorCompra(db, filas.map((r) => r.c.id));
+  return filas.map((r) => {
+    const recibidoCentavos = Number(r.recibidoCentavos);
+    const vigente = r.c.estado === 'confirmada' || r.c.estado === 'cerrada';
+    const aPagarCentavos = vigente ? recibidoCentavos - r.c.descuentoCentavos + r.c.impuestosCentavos : 0;
+    const pagadoCentavos = imputado.get(r.c.id) ?? 0;
+    return {
+      ...r.c, proveedor: r.proveedor, pedidas: Number(r.pedidas), recibidas: Number(r.recibidas), totalCentavos: Number(r.totalCentavos), recibidoCentavos,
+      estadoPedido: estadoPedido(r.c, Number(r.pedidas), Number(r.recibidas)), ultimaRecepcion: r.ultima ?? null, vencimientoEfectivo: vencimientoDe(r.c, r.ultima ?? null),
+      aPagarCentavos, pagadoCentavos, saldoCentavos: aPagarCentavos - pagadoCentavos,
+    };
+  }).filter((c) => !f.estadoPedido || c.estadoPedido === f.estadoPedido);
 }
 
 /** Resumen por proveedor: lo recibido valorizado y lo que falta entregar. Los pagos llegan con el módulo de caja. */

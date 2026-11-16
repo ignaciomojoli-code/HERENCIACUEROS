@@ -6,6 +6,7 @@ import { ErrorNegocio } from '../../services/errores.js';
 import { tienePermiso } from '../../domain/permisos.js';
 import { filtrarCostos } from '../filtros.js';
 import { saldosProveedores } from '../../services/gastos.js';
+import * as cb from '../../services/comprobantes.js';
 
 const idDe = (req: FastifyRequest) => {
   const n = Number((req.params as { id: string }).id);
@@ -13,7 +14,14 @@ const idDe = (req: FastifyRequest) => {
   return n;
 };
 const fecha = z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'Fecha inválida');
+const comprobante = {
+  comprobante: z.string().nullable().optional(), fechaComprobante: fecha.nullable().optional(),
+  descuentoCentavos: z.number().int().min(0).optional(), impuestosCentavos: z.number().int().min(0).optional(),
+  condicionPago: z.enum(['al_pedir', 'al_recibir', 'a_plazo', 'cuenta_corriente']).nullable().optional(),
+  plazoPagoDias: z.number().int().min(0).nullable().optional(), vencimiento: fecha.nullable().optional(),
+};
 const esquemaCompra = z.object({
+  ...comprobante,
   proveedorId: z.number().int(), tipo: z.enum(['reventa', 'confeccion']), fecha, fechaEsperada: fecha.nullable().optional(),
   notas: z.string().nullable().optional(),
   items: z.array(z.object({ varianteId: z.number().int(), cantidad: z.number().int(), costoUnitarioCentavos: z.number().int(), notas: z.string().nullable().optional() })),
@@ -29,7 +37,7 @@ export async function rutasCompras(app: FastifyInstance, { base, requiere, conId
 
   app.get('/compras', async (req) => {
     requiere(req, 'compras');
-    const q = z.object({ proveedorId: z.coerce.number().int().optional(), estado: z.string().optional(), pendientes: z.coerce.boolean().optional() }).parse(req.query);
+    const q = z.object({ proveedorId: z.coerce.number().int().optional(), estado: z.string().optional(), pendientes: z.coerce.boolean().optional(), estadoPedido: z.string().optional() }).parse(req.query);
     return filtrarCostos(req, cp.listarCompras(base.db, q), IMPORTES);
   });
   app.get('/compras/:id', async (req) => { requiere(req, 'compras'); return filtrarCostos(req, cp.obtenerCompra(base.db, idDe(req)), IMPORTES); });
@@ -42,6 +50,11 @@ export async function rutasCompras(app: FastifyInstance, { base, requiere, conId
     requiere(req, 'compras', 'modificar'); exigeCostos(req);
     const d = esquemaCompra.parse(req.body);
     return base.tx((db) => cp.actualizarCompra(ctx(req, db), idDe(req), d));
+  });
+  app.put('/compras/:id/comprobante', async (req) => {
+    requiere(req, 'compras', 'modificar'); exigeCostos(req);
+    const d = z.object({ ...comprobante, motivo: z.string().optional() }).parse(req.body);
+    return base.tx((db) => cb.guardarComprobante(ctx(req, db), idDe(req), d, d.motivo));
   });
   app.post('/compras/:id/estado', async (req) => {
     const d = z.object({ accion: z.enum(['confirmar', 'cerrar', 'anular']), motivo: z.string().optional() }).parse(req.body);

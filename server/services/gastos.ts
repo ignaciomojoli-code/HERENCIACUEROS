@@ -15,6 +15,8 @@ import { siguienteNumero } from './numeracion.js';
 import type { Ctx } from './stock.js';
 import { cuentaOError, hoyLocal, registrarSalida, revertirMovimientos } from './caja.js';
 import { listarCompras } from './compras.js';
+import { ajusteComprobanteSql, grabarImputaciones, imputacionesDePagos, validarImputaciones } from './comprobantes.js';
+import { imputacionesPago } from '../db/schema.js';
 
 // ───────────── Categorías ─────────────
 
@@ -147,27 +149,26 @@ export function listarGastos(db: DB, f: FiltroGastos) {
 
 // ───────────── Pagos a proveedores ─────────────
 
-export interface DatosPago { fecha: string; proveedorId: number; compraId?: number | null; cuentaId: number; importeCentavos: number; comprobante?: string | null; notas?: string | null }
+export interface DatosPago { fecha: string; proveedorId: number; compraId?: number | null; imputaciones?: { compraId: number; importeCentavos: number }[]; cuentaId: number; importeCentavos: number; comprobante?: string | null; notas?: string | null }
 
 export function crearPago(ctx: Ctx, d: DatosPago) {
   if (!Number.isInteger(d.importeCentavos) || d.importeCentavos <= 0) throw new ErrorNegocio('El importe tiene que ser mayor a cero');
   const p = ctx.db.select().from(proveedores).where(eq(proveedores.id, d.proveedorId)).get();
   if (!p) throw noEncontrado('El proveedor');
-  if (d.compraId) {
-    const c = ctx.db.select().from(compras).where(eq(compras.id, d.compraId)).get();
-    if (!c || c.proveedorId !== d.proveedorId) throw new ErrorNegocio('El pedido no es de ese proveedor');
-    if (c.estado === 'anulada') throw new ErrorNegocio('El pedido está anulado');
-  }
+  // A qué pedidos se aplica: lista explícita, o el pedido único (forma vieja) por el total.
+  const imps = d.imputaciones ?? (d.compraId ? [{ compraId: d.compraId, importeCentavos: d.importeCentavos }] : []);
+  validarImputaciones(ctx.db, d.proveedorId, d.importeCentavos, imps);
   const c = cuentaOError(ctx.db, d.cuentaId);
   if (c.tipo === 'a_liquidar') throw new ErrorNegocio('No se puede pagar desde tarjetas a liquidar');
   if (c.moneda !== 'ARS') throw new ErrorNegocio('Los pagos se registran en pesos. Si pagaste con dólares, hacé primero el cambio (pase de Dólares a Efectivo)');
   const t = ahora();
   const pago = ctx.db.insert(pagosProveedor).values({
-    numero: siguienteNumero(ctx.db, 'pago_proveedor'), fecha: d.fecha, proveedorId: d.proveedorId, compraId: d.compraId ?? null, cuentaId: d.cuentaId,
+    numero: siguienteNumero(ctx.db, 'pago_proveedor'), fecha: d.fecha, proveedorId: d.proveedorId, compraId: imps.length === 1 ? imps[0].compraId : null, cuentaId: d.cuentaId,
     importeCentavos: d.importeCentavos, comprobante: d.comprobante?.trim() || null, notas: d.notas?.trim() || null, usuarioId: ctx.usuarioId, creadoEn: t, actualizadoEn: t,
   }).returning().get();
   registrarSalida(ctx, { fecha: d.fecha, cuentaId: d.cuentaId, importeCentavos: d.importeCentavos, tipo: 'pago_proveedor', concepto: `Pago PP-${pago.numero} a ${p.nombre}${d.notas?.trim() ? ': ' + d.notas.trim() : ''}`, refTipo: 'pago_proveedor', refId: pago.id });
-  auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'crear', entidad: 'pago_proveedor', entidadId: pago.id, despues: pago });
+  grabarImputaciones(ctx, pago.id, imps);
+  auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'crear', entidad: 'pago_proveedor', entidadId: pago.id, despues: { ...pago, imputaciones: imps } });
   return pago;
 }
 
@@ -178,6 +179,7 @@ export function anularPago(ctx: Ctx, id: number, motivo: string) {
   if (p.estado === 'anulado') throw new ErrorNegocio('El pago ya está anulado');
   revertirMovimientos(ctx, { refTipo: 'pago_proveedor', refId: id }, `pago PP-${p.numero} anulado: ${motivo.trim()}`, hoyLocal());
   ctx.db.update(pagosProveedor).set({ estado: 'anulado', motivoAnulacion: motivo.trim(), actualizadoEn: ahora() }).where(eq(pagosProveedor.id, id)).run();
+  ctx.db.update(imputacionesPago).set({ estado: 'anulada' }).where(and(eq(imputacionesPago.pagoId, id), eq(imputacionesPago.estado, 'activa'))).run();
   auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'anular', entidad: 'pago_proveedor', entidadId: id, detalle: motivo });
   return { ok: true };
 }
@@ -188,11 +190,15 @@ export function listarPagos(db: DB, f: { proveedorId?: number; desde?: string; h
   if (f.desde) conds.push(gte(pagosProveedor.fecha, f.desde));
   if (f.hasta) conds.push(lte(pagosProveedor.fecha, f.hasta));
   if (f.estado !== 'todos') conds.push(eq(pagosProveedor.estado, f.estado ?? 'activo'));
-  return db.select({ p: pagosProveedor, proveedor: proveedores.nombre, cuenta: cuentas.nombre, compraNumero: compras.numero })
+  const filas = db.select({ p: pagosProveedor, proveedor: proveedores.nombre, cuenta: cuentas.nombre, compraNumero: compras.numero })
     .from(pagosProveedor).innerJoin(proveedores, eq(proveedores.id, pagosProveedor.proveedorId)).innerJoin(cuentas, eq(cuentas.id, pagosProveedor.cuentaId))
     .leftJoin(compras, eq(compras.id, pagosProveedor.compraId))
-    .where(conds.length ? and(...conds) : undefined).orderBy(desc(pagosProveedor.fecha), desc(pagosProveedor.numero)).all()
-    .map((r) => ({ ...r.p, proveedor: r.proveedor, cuenta: r.cuenta, compraNumero: r.compraNumero }));
+    .where(conds.length ? and(...conds) : undefined).orderBy(desc(pagosProveedor.fecha), desc(pagosProveedor.numero)).all();
+  const imps = imputacionesDePagos(db, filas.map((r) => r.p.id));
+  return filas.map((r) => {
+    const mias = imps.filter((i) => i.pagoId === r.p.id).map((i) => ({ compraId: i.compraId, compraNumero: i.compraNumero, importeCentavos: i.importeCentavos }));
+    return { ...r.p, proveedor: r.proveedor, cuenta: r.cuenta, compraNumero: r.compraNumero, imputaciones: mias, sinImputarCentavos: r.p.importeCentavos - mias.reduce((s, i) => s + i.importeCentavos, 0) };
+  });
 }
 
 /** Ajuste de cuenta corriente (saldo inicial, redondeos, notas de crédito). Positivo = se le debe más. */
@@ -229,12 +235,14 @@ export function saldosProveedores(db: DB, proveedorIds?: number[]) {
     select c.proveedor_id as p, coalesce(sum(ri.cantidad * ri.costo_unitario_centavos), 0) as s
     from recepcion_items ri join recepciones r on r.id = ri.recepcion_id join compras c on c.id = r.compra_id
     where r.estado = 'activa' and c.estado != 'anulada' group by c.proveedor_id`).filter((x) => !proveedorIds || proveedorIds.includes(x.p));
+  const comp = db.select({ p: compras.proveedorId, s: sql<number>`sum(${ajusteComprobanteSql})` }).from(compras)
+    .where(proveedorIds ? inArray(compras.proveedorId, proveedorIds) : undefined).groupBy(compras.proveedorId).all();
   const mat = comprasMaterialPorProveedor(db).filter((x) => !proveedorIds || proveedorIds.includes(x.p));
   const aj = db.select({ p: ajustesProveedor.proveedorId, s: sql<number>`sum(${ajustesProveedor.importeCentavos})` }).from(ajustesProveedor)
     .where(and(eq(ajustesProveedor.estado, 'activo'), proveedorIds ? inArray(ajustesProveedor.proveedorId, proveedorIds) : undefined)).groupBy(ajustesProveedor.proveedorId).all();
-  const ids = new Set([...pagado.map((x) => x.p), ...recibido.map((x) => x.p), ...mat.map((x) => x.p), ...aj.map((x) => x.p)]);
+  const ids = new Set([...pagado.map((x) => x.p), ...recibido.map((x) => x.p), ...mat.map((x) => x.p), ...aj.map((x) => x.p), ...comp.filter((x) => Number(x.s)).map((x) => x.p)]);
   return new Map([...ids].map((id) => {
-    const r = Number(recibido.find((x) => x.p === id)?.s ?? 0) + Number(mat.find((x) => x.p === id)?.s ?? 0) + Number(aj.find((x) => x.p === id)?.s ?? 0);
+    const r = Number(recibido.find((x) => x.p === id)?.s ?? 0) + Number(mat.find((x) => x.p === id)?.s ?? 0) + Number(aj.find((x) => x.p === id)?.s ?? 0) + Number(comp.find((x) => x.p === id)?.s ?? 0);
     const pg = Number(pagado.find((x) => x.p === id)?.s ?? 0);
     return [id, { recibidoCentavos: r, pagadoCentavos: pg, saldoCentavos: r - pg }];
   }));
@@ -255,7 +263,12 @@ export function cuentaCorrienteProveedor(db: DB, proveedorId: number) {
       debeCentavos: Math.max(0, m.importeCentavos), haberCentavos: Math.max(0, -m.importeCentavos) })),
     ...listarAjustesProveedor(db, proveedorId).filter((a) => a.estado === 'activo').map((a) => ({ fecha: a.fecha, orden: 0, tipo: 'ajuste' as const, refId: a.id, detalle: `Ajuste: ${a.motivo}`,
       debeCentavos: Math.max(0, a.importeCentavos), haberCentavos: Math.max(0, -a.importeCentavos) })),
-    ...pagos.map((p) => ({ fecha: p.fecha, orden: 1, tipo: 'pago' as const, refId: p.id, detalle: `Pago PP-${p.numero} · ${p.cuenta}${p.notas ? ' · ' + p.notas : ''}`, debeCentavos: 0, haberCentavos: p.importeCentavos })),
+    ...listarCompras(db, { proveedorId }).filter((c) => (c.estado === 'confirmada' || c.estado === 'cerrada') && c.impuestosCentavos - c.descuentoCentavos !== 0).map((c) => {
+      const neto = c.impuestosCentavos - c.descuentoCentavos;
+      const partes = [c.impuestosCentavos ? `impuestos ${(c.impuestosCentavos / 100).toLocaleString('es-AR')}` : '', c.descuentoCentavos ? `descuento ${(c.descuentoCentavos / 100).toLocaleString('es-AR')}` : ''].filter(Boolean).join(', ');
+      return { fecha: c.fechaComprobante ?? c.fecha, orden: 0, tipo: 'comprobante' as const, refId: c.id, detalle: `Pedido P-${c.numero}${c.comprobante ? ' · ' + c.comprobante : ''}: ${partes}`, debeCentavos: Math.max(0, neto), haberCentavos: Math.max(0, -neto) };
+    }),
+    ...pagos.map((p) => ({ fecha: p.fecha, orden: 1, tipo: 'pago' as const, refId: p.id, detalle: `Pago PP-${p.numero} · ${p.cuenta}${p.imputaciones.length ? ' · a ' + p.imputaciones.map((i) => 'P-' + i.compraNumero).join(', ') : ''}${p.notas ? ' · ' + p.notas : ''}`, debeCentavos: 0, haberCentavos: p.importeCentavos })),
   ].sort((a, b) => a.fecha.localeCompare(b.fecha) || a.orden - b.orden);
   let saldo = 0;
   const conSaldo = lineas.map((l) => ({ ...l, saldoCentavos: (saldo += l.debeCentavos - l.haberCentavos) }));

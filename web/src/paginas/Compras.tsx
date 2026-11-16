@@ -10,18 +10,28 @@ import { Th, coincide, useOrden } from '../componentes/Orden';
 import { Importe } from '../componentes/Importe';
 import { BuscadorVariante } from '../componentes/BuscadorVariante';
 import { fecha as fmtFecha, fechaHora, pesos } from '../formato';
+import { Adjuntos } from '../componentes/Adjuntos';
+import { CONDICIONES, CamposComprobante, comprobanteDe, comprobanteValido, comprobanteVacio, cuerpoComprobante, type CondicionPago } from '../componentes/Comprobante';
 
 type Estado = 'borrador' | 'confirmada' | 'cerrada' | 'anulada';
-interface CompraResumen { id: number; numero: number; proveedorId: number; proveedor: string; tipo: 'reventa' | 'confeccion'; fecha: string; fechaEsperada: string | null; estado: Estado; pedidas: number; recibidas: number; totalCentavos?: number; recibidoCentavos?: number }
+type EstadoPedido = 'pendiente_solicitar' | 'solicitado' | 'pendiente_entrega' | 'entrega_parcial' | 'entregado' | 'cerrado_incompleto' | 'cancelado';
+interface Comp { comprobante: string | null; fechaComprobante: string | null; descuentoCentavos: number; impuestosCentavos: number; condicionPago: CondicionPago | null; plazoPagoDias: number | null; vencimiento: string | null }
+interface CompraResumen extends Comp {
+  id: number; numero: number; proveedorId: number; proveedor: string; tipo: 'reventa' | 'confeccion'; fecha: string; fechaEsperada: string | null; estado: Estado; estadoPedido: EstadoPedido;
+  pedidas: number; recibidas: number; totalCentavos?: number; recibidoCentavos?: number; vencimientoEfectivo: string | null; aPagarCentavos?: number; pagadoCentavos?: number; saldoCentavos?: number;
+}
 interface ItemC { id: number; varianteId: number; sku: string; modelo: string; modeloId: number; color: string | null; talle: string | null; cantidad: number; costoUnitarioCentavos?: number; recibido: number; pendiente: number; notas: string | null }
 interface Recepcion { id: number; numero: number; fecha: string; comprobante: string | null; notas: string | null; estado: 'activa' | 'anulada'; motivoAnulacion: string | null; items: { id: number; sku: string; cantidad: number; costoUnitarioCentavos?: number }[] }
-interface Compra extends Omit<CompraResumen, 'pedidas' | 'recibidas'> { notas: string | null; items: ItemC[]; recepciones: Recepcion[] }
-interface Proveedor { id: number; nombre: string; activo: boolean }
+interface Compra extends Omit<CompraResumen, 'pedidas' | 'recibidas'> { notas: string | null; items: ItemC[]; recepciones: Recepcion[]; pagos: { pagoId: number; numero: number; fecha: string; importeCentavos: number; totalPagoCentavos: number }[] }
+interface Proveedor { id: number; nombre: string; activo: boolean; condicionPago: CondicionPago | null; plazoPagoDias: number | null }
 
-const ESTADOS: Record<Estado, [string, string]> = {
-  borrador: ['Borrador', 'bg-arena/50 text-carbon/70'], confirmada: ['Pendiente de entrega', 'bg-conac-claro text-conac'],
-  cerrada: ['Cerrado', 'bg-carbon/5 text-carbon/60'], anulada: ['Anulado', 'bg-carbon/5 text-carbon/40 line-through'],
+export const ESTADOS_PEDIDO: Record<EstadoPedido, [string, string]> = {
+  pendiente_solicitar: ['Pendiente de solicitar', 'bg-arena/50 text-carbon/70'], solicitado: ['Solicitado', 'bg-conac-claro text-conac'],
+  pendiente_entrega: ['Pendiente de entrega', 'bg-bordo-claro text-bordo'], entrega_parcial: ['Entrega parcial', 'bg-conac-claro text-conac'],
+  entregado: ['Entregado', 'bg-carbon/5 text-carbon/60'], cerrado_incompleto: ['Cerrado incompleto', 'bg-carbon/5 text-carbon/60'], cancelado: ['Cancelado', 'bg-carbon/5 text-carbon/40 line-through'],
 };
+const Estado = ({ e }: { e: EstadoPedido }) => <span className={`pildora ${ESTADOS_PEDIDO[e][1]}`}>{ESTADOS_PEDIDO[e][0]}</span>;
+const vencido = (c: { vencimientoEfectivo: string | null; saldoCentavos?: number }) => !!c.vencimientoEfectivo && (c.saldoCentavos ?? 0) > 0 && c.vencimientoEfectivo < hoy();
 export const TIPOS = { reventa: 'Reventa', confeccion: 'Confección (taller)' };
 const hoy = () => new Date().toLocaleDateString('en-CA');
 
@@ -33,12 +43,13 @@ export function PaginaCompras() {
   const estado = params.get('estado') ?? 'abiertos';
   const fijar = (k: string, v: string) => { const p = new URLSearchParams(params); if (v) p.set(k, v); else p.delete(k); setParams(p, { replace: true }); };
   const provs = useQuery({ queryKey: ['proveedores'], queryFn: () => api.get<Proveedor[]>('/proveedores'), enabled: puede('proveedores') });
-  const lista = useQuery({ queryKey: ['compras', proveedorId, estado], queryFn: () => api.get<CompraResumen[]>('/compras' + qs({ proveedorId, estado: estado === 'abiertos' || estado === 'todos' ? '' : estado, pendientes: estado === 'abiertos' ? 'true' : '' })) });
+  const lista = useQuery({ queryKey: ['compras', proveedorId, estado], queryFn: () => api.get<CompraResumen[]>('/compras' + qs({ proveedorId, estadoPedido: estado === 'abiertos' || estado === 'todos' || estado === 'con_saldo' ? '' : estado, pendientes: estado === 'abiertos' ? 'true' : '' })) });
   const resumen = useQuery({ queryKey: ['resumen-proveedor', proveedorId], queryFn: () => api.get<{ compras: number; recibidoCentavos?: number; unidadesPendientes: number; pendienteCentavos?: number; pagadoCentavos?: number; saldoCentavos?: number }>(`/proveedores/${proveedorId}/resumen`), enabled: !!proveedorId && puede('proveedores') });
   const verCostos = puede('costos');
   const [q, setQ] = useState('');
-  const { filas: compras, orden } = useOrden((lista.data ?? []).filter((c) => coincide(q, `P-${c.numero}`, c.proveedor)), {
-    numero: (c) => c.numero, fecha: (c) => c.fecha, proveedor: (c) => c.proveedor, tipo: (c) => TIPOS[c.tipo], recibido: (c) => (c.pedidas ? c.recibidas / c.pedidas : 0), total: (c) => c.totalCentavos, estado: (c) => ESTADOS[c.estado][0],
+  const { filas: compras, orden } = useOrden((lista.data ?? []).filter((c) => coincide(q, `P-${c.numero}`, c.proveedor, c.comprobante) && (estado !== 'con_saldo' || (c.saldoCentavos ?? 0) > 0)), {
+    numero: (c) => c.numero, fecha: (c) => c.fecha, proveedor: (c) => c.proveedor, tipo: (c) => TIPOS[c.tipo], recibido: (c) => (c.pedidas ? c.recibidas / c.pedidas : 0), total: (c) => c.totalCentavos, estado: (c) => ESTADOS_PEDIDO[c.estadoPedido][0],
+    vence: (c) => ((c.saldoCentavos ?? 0) > 0 ? c.vencimientoEfectivo : null), saldo: (c) => c.saldoCentavos,
   }, { col: 'numero', dir: 'desc' });
   return (
     <>
@@ -46,12 +57,14 @@ export function PaginaCompras() {
         {puede('compras', 'crear') && verCostos && <Link className="btn-primario" to="/compras/nuevo"><Plus className="h-4 w-4" />Nuevo pedido</Link>}
       </Encabezado>
       <div className="mb-4 grid gap-2 sm:grid-cols-3">
-        <input className="entrada" placeholder="Buscar por N° o proveedor" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input className="entrada" placeholder="Buscar por N°, proveedor o factura" value={q} onChange={(e) => setQ(e.target.value)} />
         <select className="entrada" value={proveedorId} onChange={(e) => fijar('proveedor', e.target.value)}>
           <option value="">Todos los proveedores</option>{provs.data?.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
         </select>
         <select className="entrada" value={estado} onChange={(e) => fijar('estado', e.target.value === 'abiertos' ? '' : e.target.value)}>
-          <option value="abiertos">Abiertos (borrador o pendientes)</option><option value="confirmada">Pendientes de entrega</option><option value="cerrada">Cerrados</option><option value="anulada">Anulados</option><option value="todos">Todos</option>
+          <option value="abiertos">Abiertos (sin solicitar o sin terminar de entregar)</option>
+          {Object.entries(ESTADOS_PEDIDO).map(([k, v]) => <option key={k} value={k}>{v[0]}</option>)}
+          {verCostos && <option value="con_saldo">Con saldo a pagar</option>}<option value="todos">Todos</option>
         </select>
       </div>
       {resumen.data && (
@@ -64,7 +77,7 @@ export function PaginaCompras() {
       {lista.isLoading ? <Cargando /> : lista.isError ? <ErrorCarga error={lista.error} /> : !compras.length ? <Vacio>No hay pedidos con ese filtro.</Vacio> : (
         <div className="tarjeta overflow-x-auto">
           <table className="tabla">
-            <thead><tr><Th col="numero" orden={orden}>N°</Th><Th col="fecha" orden={orden}>Fecha</Th><Th col="proveedor" orden={orden}>Proveedor</Th><Th col="tipo" orden={orden} className="hidden md:table-cell">Tipo</Th><Th col="recibido" orden={orden} className="num">Recibido</Th>{verCostos && <Th col="total" orden={orden} className="num">Total</Th>}<Th col="estado" orden={orden}>Estado</Th></tr></thead>
+            <thead><tr><Th col="numero" orden={orden}>N°</Th><Th col="fecha" orden={orden}>Fecha</Th><Th col="proveedor" orden={orden}>Proveedor</Th><Th col="tipo" orden={orden} className="hidden md:table-cell">Tipo</Th><Th col="recibido" orden={orden} className="num">Recibido</Th>{verCostos && <Th col="total" orden={orden} className="num">Total</Th>}{verCostos && <Th col="saldo" orden={orden} className="num hidden sm:table-cell">Saldo</Th>}{verCostos && <Th col="vence" orden={orden} className="hidden md:table-cell">Vence</Th>}<Th col="estado" orden={orden}>Estado</Th></tr></thead>
             <tbody>
               {compras.map((c) => (
                 <tr key={c.id} className="cursor-pointer" onClick={() => nav(`/compras/${c.id}`)}>
@@ -72,7 +85,9 @@ export function PaginaCompras() {
                   <td className="hidden md:table-cell">{TIPOS[c.tipo]}</td>
                   <td className="num">{c.recibidas} / {c.pedidas}</td>
                   {verCostos && <td className="num">{pesos(c.totalCentavos)}</td>}
-                  <td><span className={`pildora ${ESTADOS[c.estado][1]}`}>{ESTADOS[c.estado][0]}</span></td>
+                  {verCostos && <td className={`num hidden sm:table-cell ${(c.saldoCentavos ?? 0) > 0 ? '' : 'text-carbon/40'}`}>{(c.saldoCentavos ?? 0) !== 0 ? pesos(c.saldoCentavos) : '—'}</td>}
+                  {verCostos && <td className={`hidden md:table-cell whitespace-nowrap ${vencido(c) ? 'font-medium text-bordo' : ''}`}>{(c.saldoCentavos ?? 0) > 0 && c.vencimientoEfectivo ? fmtFecha(c.vencimientoEfectivo + 'T12:00') : '—'}</td>}
+                  <td><Estado e={c.estadoPedido} /></td>
                 </tr>
               ))}
             </tbody>
@@ -94,9 +109,14 @@ export function PaginaCompraForm() {
   const existente = useQuery({ queryKey: ['compra', id], queryFn: () => api.get<Compra>(`/compras/${id}`), enabled: editando });
   const [d, setD] = useState({ proveedorId: 0, tipo: 'reventa' as 'reventa' | 'confeccion', fecha: hoy(), fechaEsperada: '', notas: '' });
   const [lineas, setLineas] = useState<Linea[]>([]);
+  const [comp, setComp] = useState(comprobanteVacio());
+  const provSel = provs.data?.find((p) => p.id === d.proveedorId);
+  // Al elegir proveedor se propone su condición habitual (se puede cambiar para esta operación).
+  useEffect(() => { if (!editando && provSel) setComp((x) => ({ ...x, condicionPago: provSel.condicionPago ?? '', plazoPagoDias: provSel.plazoPagoDias })); }, [provSel?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const c = existente.data;
     if (!c) return;
+    setComp(comprobanteDe(c));
     setD({ proveedorId: c.proveedorId, tipo: c.tipo, fecha: c.fecha.slice(0, 10), fechaEsperada: c.fechaEsperada?.slice(0, 10) ?? '', notas: c.notas ?? '' });
     setLineas(c.items.map((i) => ({ varianteId: i.varianteId, sku: i.sku, descripcion: describirVariante(i), cantidad: i.cantidad, costoUnitarioCentavos: i.costoUnitarioCentavos ?? null })));
   }, [existente.data]);
@@ -106,10 +126,10 @@ export function PaginaCompraForm() {
     else setLineas([...lineas, { varianteId: v.varianteId, sku: v.sku, descripcion: describirVariante(v), cantidad: 1, costoUnitarioCentavos: d.tipo === 'reventa' ? v.costoCentavos ?? null : lineas.at(-1)?.costoUnitarioCentavos ?? null }]);
   };
   const total = lineas.reduce((s, l) => s + l.cantidad * (l.costoUnitarioCentavos ?? 0), 0);
-  const valido = d.proveedorId && lineas.length && lineas.every((l) => l.cantidad > 0 && l.costoUnitarioCentavos != null);
+  const valido = d.proveedorId && lineas.length && lineas.every((l) => l.cantidad > 0 && l.costoUnitarioCentavos != null) && comprobanteValido(comp);
   const guardar = useMutation({
     mutationFn: (confirmar: boolean) => {
-      const cuerpo = { ...d, fechaEsperada: d.fechaEsperada || null, notas: d.notas || null, items: lineas.map((l) => ({ varianteId: l.varianteId, cantidad: l.cantidad, costoUnitarioCentavos: l.costoUnitarioCentavos! })) };
+      const cuerpo = { ...d, ...cuerpoComprobante(comp), fechaEsperada: d.fechaEsperada || null, notas: d.notas || null, items: lineas.map((l) => ({ varianteId: l.varianteId, cantidad: l.cantidad, costoUnitarioCentavos: l.costoUnitarioCentavos! })) };
       if (editando) return api.put(`/compras/${id}`, cuerpo).then(async () => { if (confirmar) await api.post(`/compras/${id}/estado`, { accion: 'confirmar' }); return { id: Number(id) }; });
       return api.post<{ id: number }>('/compras', { ...cuerpo, confirmar }, true);
     },
@@ -157,6 +177,11 @@ export function PaginaCompraForm() {
           </table>
         </div>
       </div>
+      <div className="tarjeta mt-4 p-5">
+        <div className="etiqueta mb-3">Pago y factura</div>
+        <CamposComprobante d={comp} onCambio={setComp} />
+        {lineas.length > 0 && ((comp.descuentoCentavos ?? 0) > 0 || (comp.impuestosCentavos ?? 0) > 0) && <p className="mt-2 text-sm">Total de la factura: <b>{pesos(total - (comp.descuentoCentavos ?? 0) + (comp.impuestosCentavos ?? 0))}</b></p>}
+      </div>
       <div className="mt-6 flex flex-wrap justify-end gap-2">
         <button className="btn-secundario" disabled={!valido || guardar.isPending} onClick={() => guardar.mutate(false)}>Guardar borrador</button>
         <button className="btn-primario" disabled={!valido || guardar.isPending} onClick={() => guardar.mutate(true)}>Confirmar pedido</button>
@@ -173,6 +198,7 @@ export function PaginaCompra() {
   const [recibir, setRecibir] = useState(false);
   const [accion, setAccion] = useState<'confirmar' | 'cerrar' | 'anular' | null>(null);
   const [anularRec, setAnularRec] = useState<Recepcion | null>(null);
+  const [editComp, setEditComp] = useState(false);
   const [motivo, setMotivo] = useState('');
   const inv = () => { qc.invalidateQueries({ queryKey: ['compra', id] }); qc.invalidateQueries({ queryKey: ['compras'] }); qc.invalidateQueries({ queryKey: ['stock'] }); };
   const estado = useMutation({
@@ -192,7 +218,7 @@ export function PaginaCompra() {
   return (
     <>
       <Link to="/compras" className="mb-3 inline-flex items-center gap-1 text-sm text-carbon/60 hover:text-carbon"><ArrowLeft className="h-4 w-4" />Compras</Link>
-      <Encabezado titulo={`Pedido P-${k.numero}`} sub={<>{k.proveedor} · {TIPOS[k.tipo]} · {fmtFecha(k.fecha + 'T12:00')}{k.fechaEsperada && ` · entrega esperada ${fmtFecha(k.fechaEsperada + 'T12:00')}`} · <span className={`pildora ${ESTADOS[k.estado][1]}`}>{ESTADOS[k.estado][0]}</span></>}>
+      <Encabezado titulo={`Pedido P-${k.numero}`} sub={<>{k.proveedor} · {TIPOS[k.tipo]} · {fmtFecha(k.fecha + 'T12:00')}{k.fechaEsperada && ` · entrega esperada ${fmtFecha(k.fechaEsperada + 'T12:00')}`} · <Estado e={k.estadoPedido} /></>}>
         {k.estado === 'borrador' && puede('compras', 'modificar') && verCostos && <Link className="btn-secundario" to={`/compras/${k.id}/editar`}><Pencil className="h-4 w-4" />Editar</Link>}
         {k.estado === 'borrador' && puede('compras', 'crear') && <button className="btn-primario" onClick={() => setAccion('confirmar')}>Confirmar pedido</button>}
         {k.estado === 'confirmada' && puede('compras', 'crear') && <button className="btn-primario" onClick={() => setRecibir(true)}><PackageCheck className="h-4 w-4" />Recibir</button>}
@@ -200,6 +226,33 @@ export function PaginaCompra() {
         {k.estado !== 'anulada' && !k.recepciones.some((r) => r.estado === 'activa') && puede('compras', 'anular') && <button className="btn-secundario" onClick={() => setAccion('anular')}>Anular</button>}
       </Encabezado>
       {k.notas && <p className="mb-4 text-sm text-carbon/70">{k.notas}</p>}
+      {verCostos && (
+        <div className="tarjeta mb-4 grid gap-4 p-5 md:grid-cols-3">
+          <div className="space-y-1 text-sm">
+            <div className="etiqueta">Factura</div>
+            <div>{k.comprobante ?? <span className="text-carbon/50">Sin cargar</span>}{k.fechaComprobante && <span className="text-carbon/60"> · {fmtFecha(k.fechaComprobante + 'T12:00')}</span>}</div>
+            <div className="text-carbon/70">Pago: {k.condicionPago ? CONDICIONES[k.condicionPago].replace(' (días)', '') + (k.condicionPago === 'a_plazo' && k.plazoPagoDias ? ` ${k.plazoPagoDias} días` : '') : 'sin definir'}</div>
+            <div className={vencido(k) ? 'font-medium text-bordo' : 'text-carbon/70'}>Vence: {k.vencimientoEfectivo ? fmtFecha(k.vencimientoEfectivo + 'T12:00') : '—'}{vencido(k) && ' (vencido)'}{k.vencimiento && <span className="text-xs text-carbon/50"> · fijado a mano</span>}</div>
+          </div>
+          <div className="space-y-1 text-sm">
+            <div className="etiqueta">Lo que se le debe</div>
+            <div className="flex justify-between"><span className="text-carbon/60">Recibido</span><span>{pesos(k.recibidoCentavos)}</span></div>
+            {k.descuentoCentavos > 0 && <div className="flex justify-between"><span className="text-carbon/60">Descuento</span><span>{pesos(-k.descuentoCentavos)}</span></div>}
+            {k.impuestosCentavos > 0 && <div className="flex justify-between"><span className="text-carbon/60">Impuestos</span><span>{pesos(k.impuestosCentavos)}</span></div>}
+            <div className="flex justify-between"><span className="text-carbon/60">Pagado</span><span>{pesos(-(k.pagadoCentavos ?? 0))}</span></div>
+            <div className="flex justify-between border-t border-arena pt-1 font-medium"><span>Saldo</span><span className={(k.saldoCentavos ?? 0) > 0 ? 'text-bordo' : ''}>{pesos(k.saldoCentavos)}</span></div>
+          </div>
+          <div className="space-y-2 text-sm">
+            <div className="etiqueta">Pagos imputados</div>
+            {k.pagos.length ? k.pagos.map((p) => <div key={p.pagoId}><Link className="underline" to={`/pagos?proveedor=${k.proveedorId}`}>PP-{p.numero}</Link> · {fmtFecha(p.fecha + 'T12:00')} · {pesos(p.importeCentavos)}{p.totalPagoCentavos !== p.importeCentavos && <span className="text-xs text-carbon/50"> (de {pesos(p.totalPagoCentavos)})</span>}</div>) : <div className="text-carbon/50">Ninguno</div>}
+            <div className="flex flex-wrap gap-2 pt-1">
+              {k.estado !== 'anulada' && puede('compras', 'modificar') && <button className="btn-secundario btn-chico" onClick={() => setEditComp(true)}>Editar factura y pago</button>}
+              {puede('caja', 'crear') && k.estado !== 'anulada' && <Link className="btn-secundario btn-chico" to={`/pagos?proveedor=${k.proveedorId}&pagar=${k.id}`}>Registrar pago</Link>}
+            </div>
+          </div>
+          <div className="md:col-span-3"><Adjuntos entidad="compra" entidadId={k.id} /></div>
+        </div>
+      )}
       <div className="tarjeta overflow-x-auto">
         <table className="tabla">
           <thead><tr><th>Producto</th><th className="num">Pedido</th><th className="num">Recibido</th><th className="num">Falta</th>{verCostos && <th className="num">{k.tipo === 'confeccion' ? 'Confección c/u' : 'Costo c/u'}</th>}{verCostos && <th className="num">Subtotal</th>}</tr></thead>
@@ -231,11 +284,13 @@ export function PaginaCompra() {
               </div>
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">{r.items.map((i) => <span key={i.id}>{i.sku} × <b>{i.cantidad}</b>{verCostos && i.costoUnitarioCentavos != null && <span className="text-carbon/50"> a {pesos(i.costoUnitarioCentavos)}</span>}</span>)}</div>
               {r.notas && <div className="mt-1 text-xs text-carbon/60">{r.notas}</div>}
+              <div className="mt-2"><Adjuntos entidad="recepcion" entidadId={r.id} compacto /></div>
             </div>
           ))}
         </div>
       )}
       {recibir && <ModalRecepcion compra={k} onCerrar={() => setRecibir(false)} onListo={inv} />}
+      {editComp && <ModalComprobante compra={k} onCerrar={() => setEditComp(false)} onListo={inv} />}
       {accion && (
         <Confirmar titulo={accion === 'confirmar' ? 'Confirmar pedido' : accion === 'cerrar' ? 'Cerrar con pendientes' : 'Anular pedido'} textoBoton={accion === 'confirmar' ? 'Confirmar' : accion === 'cerrar' ? 'Cerrar' : 'Anular'} peligro={accion === 'anular'}
           ocupado={estado.isPending} onCerrar={() => { setAccion(null); setMotivo(''); }} onConfirmar={() => estado.mutate(accion)}>
@@ -304,6 +359,27 @@ function ModalRecepcion({ compra, onCerrar, onListo }: { compra: Compra; onCerra
           <button className="btn-primario" disabled={!total || guardar.isPending} onClick={() => guardar.mutate()}>{guardar.isPending ? 'Guardando…' : `Recibir ${total} unidades`}</button>
         </div>
       </div>
+    </Modal>
+  );
+}
+
+function ModalComprobante({ compra, onCerrar, onListo }: { compra: Compra; onCerrar: () => void; onListo: () => void }) {
+  const [d, setD] = useState(comprobanteDe(compra));
+  const [motivo, setMotivo] = useState('');
+  const pideMotivo = compra.estado !== 'borrador';
+  const m = useMutation({
+    mutationFn: () => api.put(`/compras/${compra.id}/comprobante`, { ...cuerpoComprobante(d), motivo: motivo || undefined }),
+    onSuccess: () => { avisar('Datos de la factura guardados'); onListo(); onCerrar(); }, onError: avisarError,
+  });
+  const valido = comprobanteValido(d) && (!pideMotivo || motivo.trim());
+  return (
+    <Modal titulo={`Factura y pago · P-${compra.numero}`} onCerrar={onCerrar} ancho="max-w-3xl">
+      <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (valido) m.mutate(); }}>
+        <CamposComprobante d={d} onCambio={setD} />
+        <p className="text-xs text-carbon/55">El descuento y los impuestos cambian lo que se le debe al proveedor; no cambian el costo de los productos.</p>
+        {pideMotivo && <Campo etiqueta="Motivo del cambio"><input className="entrada" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ej.: llegó la factura" /></Campo>}
+        <div className="flex justify-end gap-2"><button type="button" className="btn-secundario" onClick={onCerrar}>Cancelar</button><button className="btn-primario" disabled={!valido || m.isPending}>Guardar</button></div>
+      </form>
     </Modal>
   );
 }
