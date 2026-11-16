@@ -8,7 +8,8 @@ import { Aviso, Campo, Cargando, Confirmar, Encabezado, ErrorCarga, Estado, Moda
 import { Importe } from '../componentes/Importe';
 import { fecha as fmtFecha, pesos } from '../formato';
 import { hoy } from '../plata';
-import { TIPOS_MOV, UNIDADES, cant, leerCant, useMateriales, type DetalleMaterial, type Material, type MovMaterial } from '../costos';
+import { Th, coincide, useOrden } from '../componentes/Orden';
+import { CLASIF_MATERIAL, TIPOS_MOV, UNIDADES, type ClasificacionMaterial, cant, leerCant, useMateriales, type DetalleMaterial, type Material, type MovMaterial } from '../costos';
 
 const bajoMinimo = (m: Material) => m.stockMil !== null && (m.stockMil < 0 || (m.stockMinimoMil !== null && m.stockMil <= m.stockMinimoMil));
 const inv = (qc: ReturnType<typeof useQueryClient>) => ['materiales', 'material', 'costeo', 'saldos-proveedores', 'cuenta-corriente'].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
@@ -19,10 +20,16 @@ export function PaginaMateriales() {
   const [q, setQ] = useState('');
   const [verId, setVerId] = useState<number | null>(null);
   const [editar, setEditar] = useState<Partial<Material> | null>(null);
+  const [clase, setClase] = useState('');
   const verCostos = puede('costos');
+  const visibles = (lista.data ?? []).filter((m) => coincide(q, m.codigo, m.nombre, m.proveedor)
+    && (!clase || (clase === 'mano_obra' ? m.tipo === 'mano_obra' : clase === 'pendiente' ? m.tipo === 'material' && !m.clasificacion : m.clasificacion === clase)));
+  const { filas, orden } = useOrden(visibles, {
+    codigo: (m) => m.codigo, nombre: (m) => m.nombre, tipo: (m) => (m.tipo === 'mano_obra' ? 'Mano de obra' : m.clasificacion ? CLASIF_MATERIAL[m.clasificacion] : null),
+    stock: (m) => m.stockMil, costo: (m) => m.costoCentavos, proveedor: (m) => m.proveedor, modelos: (m) => m.modelosQueLoUsan, estado: (m) => m.activo,
+  }, { col: 'codigo' });
   if (lista.isLoading) return <Cargando />;
   if (lista.isError) return <ErrorCarga error={lista.error} />;
-  const filas = (lista.data ?? []).filter((m) => !q || `${m.codigo} ${m.nombre} ${m.proveedor ?? ''}`.toLowerCase().includes(q.toLowerCase()));
   const alertas = (lista.data ?? []).filter((m) => m.activo && bajoMinimo(m));
   return (
     <>
@@ -33,15 +40,21 @@ export function PaginaMateriales() {
       {alertas.length > 0 && (
         <Aviso tono="atencion"><AlertTriangle className="mr-1 inline h-4 w-4" />Para reponer: {alertas.map((m) => `${m.nombre} (${cant(m.stockMil)} ${m.unidad})`).join(' · ')}</Aviso>
       )}
-      <input className="entrada my-3" placeholder="Buscar por código, nombre o proveedor" value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="my-3 grid gap-2 sm:grid-cols-[1fr_auto]">
+        <input className="entrada" placeholder="Buscar por código, nombre o proveedor" value={q} onChange={(e) => setQ(e.target.value)} />
+        <select className="entrada" value={clase} onChange={(e) => setClase(e.target.value)} aria-label="Tipo de material">
+          <option value="">Todos los tipos</option>{Object.entries(CLASIF_MATERIAL).map(([k, t]) => <option key={k} value={k}>{t}</option>)}<option value="mano_obra">Mano de obra</option><option value="pendiente">Sin clasificar</option>
+        </select>
+      </div>
       {!filas.length ? <Vacio>{lista.data?.length ? 'Nada coincide con la búsqueda.' : 'Todavía no hay materiales cargados.'}</Vacio> : (
         <div className="tarjeta overflow-x-auto">
           <table className="tabla">
-            <thead><tr><th>Código</th><th>Material</th><th className="num">Stock</th>{verCostos && <th className="num">Costo</th>}<th className="hidden md:table-cell">Proveedor</th><th className="hidden sm:table-cell num">Modelos</th><th className="hidden sm:table-cell">Estado</th></tr></thead>
+            <thead><tr><Th col="codigo" orden={orden}>Código</Th><Th col="nombre" orden={orden}>Material</Th><Th col="tipo" orden={orden} className="hidden lg:table-cell">Tipo</Th><Th col="stock" orden={orden} className="num">Stock</Th>{verCostos && <Th col="costo" orden={orden} className="num">Costo</Th>}<Th col="proveedor" orden={orden} className="hidden md:table-cell">Proveedor</Th><Th col="modelos" orden={orden} className="hidden sm:table-cell num">Modelos</Th><Th col="estado" orden={orden} className="hidden sm:table-cell">Estado</Th></tr></thead>
             <tbody>{filas.map((m) => (
               <tr key={m.id} className="cursor-pointer hover:bg-arena/20" onClick={() => setVerId(m.id)}>
                 <td className="font-mono text-xs">{m.codigo}</td>
                 <td className="font-medium">{m.nombre}{m.tipo === 'mano_obra' && <span className="pildora ml-2 bg-arena/50">Mano de obra</span>}</td>
+                <td className="hidden lg:table-cell">{m.tipo === 'mano_obra' ? '—' : m.clasificacion ? CLASIF_MATERIAL[m.clasificacion] : <Pendiente texto="Sin clasificar" />}</td>
                 <td className={`num ${bajoMinimo(m) ? 'font-semibold text-bordo' : ''}`}>{m.stockMil === null ? '—' : `${cant(m.stockMil)} ${m.unidad}`}</td>
                 {verCostos && <td className="num">{m.costoCentavos == null ? <Pendiente /> : <>{pesos(m.costoCentavos)}<span className="text-xs text-carbon/45"> /{m.unidad}</span></>}</td>}
                 <td className="hidden md:table-cell">{m.proveedor ?? '—'}</td>
@@ -71,7 +84,7 @@ function EditarMaterial({ material, onCerrar }: { material: Partial<Material>; o
     mutationFn: () => {
       const min = minimo.trim() ? leerCant(minimo) : null;
       if (Number.isNaN(min)) throw new Error('El stock mínimo no es un número');
-      const cuerpo = { codigo: m.codigo, nombre: m.nombre, unidad: m.unidad, tipo: m.tipo, proveedorId: m.proveedorId ?? null, stockMinimoMil: min, notas: m.notas ?? null, activo: m.activo ?? true,
+      const cuerpo = { codigo: m.codigo, nombre: m.nombre, unidad: m.unidad, tipo: m.tipo, proveedorId: m.proveedorId ?? null, stockMinimoMil: min, notas: m.notas ?? null, activo: m.activo ?? true, clasificacion: m.tipo === 'mano_obra' ? null : m.clasificacion ?? null,
         ...(editaCosto ? { costoCentavos: m.costoCentavos ?? null } : m.id ? {} : { costoCentavos: null }), motivo: motivo || undefined };
       return m.id ? api.put(`/materiales/${m.id}`, cuerpo) : api.post('/materiales', cuerpo);
     },
@@ -86,6 +99,7 @@ function EditarMaterial({ material, onCerrar }: { material: Partial<Material>; o
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <Campo etiqueta="Tipo"><select className="entrada" value={m.tipo} onChange={(e) => setM({ ...m, tipo: e.target.value as Material['tipo'] })}><option value="material">Material (tiene stock)</option><option value="mano_obra">Mano de obra (sin stock)</option></select></Campo>
+          {m.tipo === 'material' && <Campo etiqueta="Clasificación" ayuda="Materia prima: cuero. Material de producción: forros, cierres, avíos. Insumo: bolsas, etiquetas."><select className="entrada" value={m.clasificacion ?? ''} onChange={(e) => setM({ ...m, clasificacion: (e.target.value || null) as ClasificacionMaterial | null })}><option value="">Sin clasificar</option>{Object.entries(CLASIF_MATERIAL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Campo>}
           <Campo etiqueta="Se mide en"><select className="entrada" value={m.unidad} onChange={(e) => setM({ ...m, unidad: e.target.value as Material['unidad'] })}>{Object.entries(UNIDADES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Campo>
           {editaCosto && <Campo etiqueta={`Costo por ${UNIDADES[m.unidad ?? 'u'].replace(/s$/, '').replace(/e$/, '')}`} ayuda="Vacío si todavía no se sabe: queda pendiente."><Importe valor={m.costoCentavos} onCambio={(c) => setM({ ...m, costoCentavos: c })} /></Campo>}
           <Campo etiqueta="Proveedor habitual"><select className="entrada" value={m.proveedorId ?? ''} onChange={(e) => setM({ ...m, proveedorId: e.target.value ? Number(e.target.value) : null })}><option value="">—</option>{aux.data?.proveedores.filter((p) => p.activo || p.id === m.proveedorId).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}</select></Campo>

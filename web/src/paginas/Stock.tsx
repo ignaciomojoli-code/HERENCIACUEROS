@@ -6,6 +6,7 @@ import { api, qs } from '../api';
 import { useSesion } from '../sesion';
 import type { Aux, FilaStock } from '../tipos';
 import { Cargando, Encabezado, ErrorCarga, Pendiente, Vacio } from '../componentes/ui';
+import { Th, useOrden } from '../componentes/Orden';
 import { ModalAjuste, ModalKardex } from '../componentes/StockModales';
 import { pesos } from '../formato';
 
@@ -25,6 +26,10 @@ export function PaginaStock() {
   const [ajuste, setAjuste] = useState(false);
   const verCostos = puede('costos');
   const t = datos.data?.totales;
+  const { filas: ordenadas, orden } = useOrden(datos.data?.filas, {
+    sku: (f) => f.sku, modelo: (f) => f.modelo, color: (f) => f.color, talle: (f) => f.talle, stock: (f) => f.stock, minimo: (f) => f.stockMinimo,
+    costo: (f) => f.costoCentavos, valor: (f) => (f.costoCentavos != null ? f.costoCentavos * f.stock : null), precio: (f) => f.precioCentavos,
+  }, { col: 'sku' });
 
   return (
     <>
@@ -71,9 +76,9 @@ export function PaginaStock() {
           </div>
           <div className="tarjeta hidden overflow-x-auto sm:block">
             <table className="tabla">
-              <thead><tr><th>Código</th><th>Producto</th><th>Color</th><th>Talle</th><th className="num">Stock</th><th className="num">Mín.</th>{verCostos && <th className="num">Costo</th>}{verCostos && <th className="num">Valor costo</th>}<th className="num">Precio ef.</th></tr></thead>
+              <thead><tr><Th col="sku" orden={orden}>Código</Th><Th col="modelo" orden={orden}>Producto</Th><Th col="color" orden={orden}>Color</Th><Th col="talle" orden={orden}>Talle</Th><Th col="stock" orden={orden} className="num">Stock</Th><Th col="minimo" orden={orden} className="num">Mín.</Th>{verCostos && <Th col="costo" orden={orden} className="num">Costo</Th>}{verCostos && <Th col="valor" orden={orden} className="num">Valor costo</Th>}<Th col="precio" orden={orden} className="num">Precio ef.</Th></tr></thead>
               <tbody>
-                {datos.data!.filas.map((f) => (
+                {ordenadas.map((f) => (
                   <tr key={f.varianteId} className="cursor-pointer" onClick={() => setKardex(f.varianteId)}>
                     <td className="font-medium">{f.sku}</td>
                     <td><Link to={`/catalogo/${f.modeloId}`} onClick={(e) => e.stopPropagation()} className="hover:underline">{f.modelo}</Link><div className="text-xs text-carbon/45">{f.categoria}</div></td>

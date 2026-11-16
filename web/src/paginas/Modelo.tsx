@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Copy, History, Pencil, Plus, Power } from 'lucide-react';
 import { api } from '../api';
 import { useSesion } from '../sesion';
-import type { Aux, Modelo, Variante } from '../tipos';
+import { CLASIFICACION_CORTA, type Aux, type Modelo, type Variante } from '../tipos';
 import { Aviso, Campo, Cargando, Confirmar, Demo, Encabezado, ErrorCarga, Estado, Modal, Pendiente, avisar, avisarError } from '../componentes/ui';
 import { Importe } from '../componentes/Importe';
 import { aproxUsd, fechaHora, pct, pesos } from '../formato';
@@ -58,7 +58,7 @@ export function PaginaModelo() {
   return (
     <>
       <Link to="/catalogo" className="mb-3 inline-flex items-center gap-1 text-sm text-carbon/60 hover:text-carbon"><ArrowLeft className="h-4 w-4" />Catálogo</Link>
-      <Encabezado titulo={m.nombre} sub={<>{[cat, sub, m.genero, prov].filter(Boolean).join(' · ')} {m.esDemo && <Demo />} {!m.activo && <Estado activo={false} />}</>}>
+      <Encabezado titulo={m.nombre} sub={<>{[cat, sub, m.genero, prov, m.clasificacion && CLASIFICACION_CORTA[m.clasificacion]].filter(Boolean).join(' · ')} {m.esDemo && <Demo />} {!m.activo && <Estado activo={false} />}</>}>
         {puede('catalogo', 'modificar') && <button className="btn-secundario" onClick={() => setEditarModelo(true)}><Pencil className="h-4 w-4" />Editar</button>}
         {puede('catalogo', 'crear') && <button className="btn-secundario" onClick={() => setDuplicar(true)}><Copy className="h-4 w-4" />Duplicar</button>}
         {puede('catalogo', 'anular') && <button className="btn-secundario" onClick={() => setEstado({ tipo: 'modelo', id: m.id, activo: !m.activo })}><Power className="h-4 w-4" />{m.activo ? 'Desactivar' : 'Reactivar'}</button>}

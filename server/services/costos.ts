@@ -43,7 +43,7 @@ export function materialOError(db: DB, id: number) {
   return m;
 }
 
-export interface DatosMaterial { codigo: string; nombre: string; unidad: Material['unidad']; tipo: Material['tipo']; costoCentavos: number | null; proveedorId: number | null; stockMinimoMil?: number | null; notas?: string | null; activo?: boolean }
+export interface DatosMaterial { codigo: string; nombre: string; unidad: Material['unidad']; tipo: Material['tipo']; costoCentavos: number | null; proveedorId: number | null; stockMinimoMil?: number | null; notas?: string | null; activo?: boolean; clasificacion?: Material['clasificacion'] }
 
 export function guardarMaterial(ctx: Ctx, id: number | null, d: DatosMaterial, motivo?: string) {
   const codigo = d.codigo?.trim().toUpperCase();
@@ -52,7 +52,8 @@ export function guardarMaterial(ctx: Ctx, id: number | null, d: DatosMaterial, m
   const rep = ctx.db.select().from(materiales).where(sql`upper(${materiales.codigo}) = ${codigo}`).get();
   if (rep && rep.id !== id) throw new ErrorNegocio(`Ya existe el material ${codigo}`);
   const t = ahora();
-  const valores = { codigo, nombre: d.nombre.trim(), unidad: d.unidad, tipo: d.tipo, costoCentavos: d.costoCentavos, proveedorId: d.proveedorId, stockMinimoMil: d.stockMinimoMil ?? null, notas: d.notas?.trim() || null, actualizadoEn: t };
+  const valores = { codigo, nombre: d.nombre.trim(), unidad: d.unidad, tipo: d.tipo, costoCentavos: d.costoCentavos, proveedorId: d.proveedorId, stockMinimoMil: d.stockMinimoMil ?? null, notas: d.notas?.trim() || null, actualizadoEn: t,
+    ...(d.clasificacion !== undefined ? { clasificacion: d.clasificacion } : {}) };
   if (id === null) {
     const m = ctx.db.insert(materiales).values({ ...valores, activo: d.activo ?? true, creadoEn: t }).returning().get();
     if (m.costoCentavos !== null) ctx.db.insert(historialCostosMaterial).values({ materialId: m.id, anteriorCentavos: null, nuevoCentavos: m.costoCentavos, fecha: t, usuarioId: ctx.usuarioId, origen: 'alta' }).run();
@@ -144,7 +145,9 @@ export function obtenerReceta(db: DB, modeloId: number) {
 
 /** Reemplaza la receta de un modelo (es una definición, no una operación: queda el antes y después en auditoría). */
 export function guardarReceta(ctx: Ctx, modeloId: number, lineas: LineaReceta[]) {
-  if (!ctx.db.select({ id: modelos.id }).from(modelos).where(eq(modelos.id, modeloId)).get()) throw noEncontrado('El modelo');
+  const modelo = ctx.db.select({ id: modelos.id, clasificacion: modelos.clasificacion }).from(modelos).where(eq(modelos.id, modeloId)).get();
+  if (!modelo) throw noEncontrado('El modelo');
+  if (modelo.clasificacion === 'producto_comprado' && lineas.length) throw new ErrorNegocio('Es un producto comprado terminado: no lleva receta. Si lo fabricamos nosotros, cambiale el tipo en el catálogo.');
   const ids = [...new Set(lineas.map((l) => l.materialId))];
   const mats = ids.length ? ctx.db.select().from(materiales).where(inArray(materiales.id, ids)).all() : [];
   if (mats.length !== ids.length) throw new ErrorNegocio('Hay materiales que no existen');

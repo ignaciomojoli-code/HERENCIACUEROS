@@ -6,6 +6,7 @@ import { api, qs } from '../api';
 import { useSesion } from '../sesion';
 import { describirVariante, type VarianteBuscada } from '../tipos';
 import { Aviso, Campo, Cargando, Confirmar, Encabezado, ErrorCarga, Modal, Vacio, avisar, avisarError } from '../componentes/ui';
+import { Th, coincide, useOrden } from '../componentes/Orden';
 import { Importe } from '../componentes/Importe';
 import { BuscadorVariante } from '../componentes/BuscadorVariante';
 import { fecha as fmtFecha, fechaHora, pesos } from '../formato';
@@ -35,12 +36,17 @@ export function PaginaCompras() {
   const lista = useQuery({ queryKey: ['compras', proveedorId, estado], queryFn: () => api.get<CompraResumen[]>('/compras' + qs({ proveedorId, estado: estado === 'abiertos' || estado === 'todos' ? '' : estado, pendientes: estado === 'abiertos' ? 'true' : '' })) });
   const resumen = useQuery({ queryKey: ['resumen-proveedor', proveedorId], queryFn: () => api.get<{ compras: number; recibidoCentavos?: number; unidadesPendientes: number; pendienteCentavos?: number; pagadoCentavos?: number; saldoCentavos?: number }>(`/proveedores/${proveedorId}/resumen`), enabled: !!proveedorId && puede('proveedores') });
   const verCostos = puede('costos');
+  const [q, setQ] = useState('');
+  const { filas: compras, orden } = useOrden((lista.data ?? []).filter((c) => coincide(q, `P-${c.numero}`, c.proveedor)), {
+    numero: (c) => c.numero, fecha: (c) => c.fecha, proveedor: (c) => c.proveedor, tipo: (c) => TIPOS[c.tipo], recibido: (c) => (c.pedidas ? c.recibidas / c.pedidas : 0), total: (c) => c.totalCentavos, estado: (c) => ESTADOS[c.estado][0],
+  }, { col: 'numero', dir: 'desc' });
   return (
     <>
       <Encabezado titulo="Compras" sub="Pedidos a proveedores y al taller, y lo que van entregando.">
         {puede('compras', 'crear') && verCostos && <Link className="btn-primario" to="/compras/nuevo"><Plus className="h-4 w-4" />Nuevo pedido</Link>}
       </Encabezado>
-      <div className="mb-4 grid gap-2 sm:grid-cols-2">
+      <div className="mb-4 grid gap-2 sm:grid-cols-3">
+        <input className="entrada" placeholder="Buscar por N° o proveedor" value={q} onChange={(e) => setQ(e.target.value)} />
         <select className="entrada" value={proveedorId} onChange={(e) => fijar('proveedor', e.target.value)}>
           <option value="">Todos los proveedores</option>{provs.data?.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
         </select>
@@ -55,12 +61,12 @@ export function PaginaCompras() {
           {verCostos && <div className="tarjeta p-4"><div className="etiqueta">Total recibido</div><div className="mt-1 font-titulo text-2xl font-bold">{pesos(resumen.data.recibidoCentavos)}</div><div className="text-xs text-carbon/50">Pagado {pesos(resumen.data.pagadoCentavos)} · {(resumen.data.saldoCentavos ?? 0) > 0 ? `se le debe ${pesos(resumen.data.saldoCentavos)}` : (resumen.data.saldoCentavos ?? 0) < 0 ? `a favor ${pesos(-(resumen.data.saldoCentavos ?? 0))}` : 'al día'}{puede('caja') && <> · <Link className="underline" to={`/pagos?proveedor=${proveedorId}`}>cuenta corriente</Link></>}</div></div>}
         </div>
       )}
-      {lista.isLoading ? <Cargando /> : lista.isError ? <ErrorCarga error={lista.error} /> : !lista.data!.length ? <Vacio>No hay pedidos con ese filtro.</Vacio> : (
+      {lista.isLoading ? <Cargando /> : lista.isError ? <ErrorCarga error={lista.error} /> : !compras.length ? <Vacio>No hay pedidos con ese filtro.</Vacio> : (
         <div className="tarjeta overflow-x-auto">
           <table className="tabla">
-            <thead><tr><th>N°</th><th>Fecha</th><th>Proveedor</th><th className="hidden md:table-cell">Tipo</th><th className="num">Recibido</th>{verCostos && <th className="num">Total</th>}<th>Estado</th></tr></thead>
+            <thead><tr><Th col="numero" orden={orden}>N°</Th><Th col="fecha" orden={orden}>Fecha</Th><Th col="proveedor" orden={orden}>Proveedor</Th><Th col="tipo" orden={orden} className="hidden md:table-cell">Tipo</Th><Th col="recibido" orden={orden} className="num">Recibido</Th>{verCostos && <Th col="total" orden={orden} className="num">Total</Th>}<Th col="estado" orden={orden}>Estado</Th></tr></thead>
             <tbody>
-              {lista.data!.map((c) => (
+              {compras.map((c) => (
                 <tr key={c.id} className="cursor-pointer" onClick={() => nav(`/compras/${c.id}`)}>
                   <td className="font-medium">P-{c.numero}</td><td>{fmtFecha(c.fecha + 'T12:00')}</td><td>{c.proveedor}</td>
                   <td className="hidden md:table-cell">{TIPOS[c.tipo]}</td>

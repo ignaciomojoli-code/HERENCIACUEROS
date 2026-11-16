@@ -5,6 +5,7 @@ import { ChevronRight, Download, FolderTree, Plus } from 'lucide-react';
 import { api, qs } from '../api';
 import { useSesion } from '../sesion';
 import { Aviso, Campo, Cargando, Confirmar, Encabezado, ErrorCarga, Modal, Vacio, avisar, avisarError } from '../componentes/ui';
+import { Th, useOrden } from '../componentes/Orden';
 import { Importe } from '../componentes/Importe';
 import { pesos } from '../formato';
 import { fechaCorta, hoy, inicioMes, queriesPlata, useCategoriasGasto, useCuentas, type CategoriaGasto } from '../plata';
@@ -28,7 +29,7 @@ export function PaginaGastos() {
   const cuentas = useCuentas();
   const filtro = { desde: f.desde, hasta: f.hasta, categoriaId: f.categoriaId, subcategoriaId: f.subcategoriaId, cuentaId: f.cuentaId, q: f.q, estado: f.estado };
   const lista = useQuery({ queryKey: ['gastos', filtro], queryFn: () => api.get<ListaGastos>('/gastos' + qs(filtro)) });
-  const [editar, setEditar] = useState<Partial<Gasto> | null>(null);
+  const [editar, setEditar] = useState<Partial<Gasto> | null>(() => (params.get('nuevo') && puede('gastos', 'crear') ? ({ fecha: hoy() } as Partial<Gasto>) : null));
   const [anular, setAnular] = useState<Gasto | null>(null);
   const [verCats, setVerCats] = useState(false);
   const [motivo, setMotivo] = useState('');
@@ -39,6 +40,10 @@ export function PaginaGastos() {
   const principales = (cats.data ?? []).filter((c) => !c.padreId);
   const subs = (cats.data ?? []).filter((c) => f.categoriaId && c.padreId === Number(f.categoriaId));
   const d = lista.data;
+  const [q, setQ] = useState(f.q);
+  const { filas: gastosOrd, orden } = useOrden(d?.filas, {
+    numero: (g) => g.numero, fecha: (g) => g.fecha, concepto: (g) => g.concepto, categoria: (g) => `${g.categoria} ${g.subcategoria ?? ''}`, cuenta: (g) => g.cuenta, importe: (g) => g.importeCentavos,
+  }, { col: 'fecha', dir: 'desc' });
   return (
     <>
       <Encabezado titulo="Gastos" sub="Gastos del local por categoría. Los gastos personales van como retiro en Caja.">
@@ -46,6 +51,9 @@ export function PaginaGastos() {
         {puede('gastos', 'exportar') && <a className="btn-secundario" href={'/api/gastos/exportar' + qs(filtro)}><Download className="h-4 w-4" />Excel</a>}
         {puede('gastos', 'crear') && <button className="btn-primario" onClick={() => setEditar({ fecha: hoy() } as Partial<Gasto>)}><Plus className="h-4 w-4" />Nuevo gasto</button>}
       </Encabezado>
+      <form className="mb-2" onSubmit={(e) => { e.preventDefault(); fijar('q', q); }}>
+        <input className="entrada" placeholder="Buscar por concepto, notas o comprobante (Enter)" value={q} onChange={(e) => setQ(e.target.value)} onBlur={() => q !== f.q && fijar('q', q)} />
+      </form>
       <div className="mb-4 grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
         <input className="entrada" type="date" value={f.desde} onChange={(e) => fijar('desde', e.target.value)} aria-label="Desde" />
         <input className="entrada" type="date" value={f.hasta} onChange={(e) => fijar('hasta', e.target.value)} aria-label="Hasta" />
@@ -76,9 +84,9 @@ export function PaginaGastos() {
       {lista.isLoading ? <Cargando /> : lista.isError ? <ErrorCarga error={lista.error} /> : !d!.filas.length ? <Vacio>No hay gastos con ese filtro.</Vacio> : (
         <div className="tarjeta overflow-x-auto">
           <table className="tabla">
-            <thead><tr><th>N°</th><th>Fecha</th><th>Concepto</th><th className="hidden sm:table-cell">Categoría</th><th className="hidden md:table-cell">Pagado con</th><th className="num">Importe</th><th /></tr></thead>
+            <thead><tr><Th col="numero" orden={orden}>N°</Th><Th col="fecha" orden={orden}>Fecha</Th><Th col="concepto" orden={orden}>Concepto</Th><Th col="categoria" orden={orden} className="hidden sm:table-cell">Categoría</Th><Th col="cuenta" orden={orden} className="hidden md:table-cell">Pagado con</Th><Th col="importe" orden={orden} className="num">Importe</Th><th /></tr></thead>
             <tbody>
-              {d!.filas.map((g) => (
+              {gastosOrd.map((g) => (
                 <tr key={g.id} className={g.estado === 'anulado' ? 'text-carbon/40' : ''}>
                   <td className="font-medium">G-{g.numero}</td>
                   <td className="whitespace-nowrap">{fechaCorta(g.fecha)}</td>
@@ -115,7 +123,7 @@ function ModalGasto({ gasto, cats, onCerrar, onListo }: { gasto: Partial<Gasto>;
   const [d, setD] = useState({
     fecha: gasto.fecha?.slice(0, 10) ?? hoy(), concepto: gasto.concepto ?? '', categoriaId: gasto.categoriaId ?? 0, subcategoriaId: gasto.subcategoriaId ?? null as number | null,
     importeCentavos: gasto.importeCentavos ?? null as number | null, cuentaId: gasto.cuentaId ?? 0, proveedorId: gasto.proveedorId ?? null as number | null,
-    comprobante: gasto.comprobante ?? '', notas: gasto.notas ?? '',
+    comprobante: gasto.comprobante ?? '', notas: gasto.notas ?? '', motivo: '',
   });
   const principales = cats.filter((c) => !c.padreId && (c.activo || c.id === d.categoriaId));
   const subs = cats.filter((c) => c.padreId === d.categoriaId && (c.activo || c.id === d.subcategoriaId));
@@ -124,11 +132,11 @@ function ModalGasto({ gasto, cats, onCerrar, onListo }: { gasto: Partial<Gasto>;
   const m = useMutation({
     mutationFn: () => {
       const comun = { concepto: d.concepto, categoriaId: d.categoriaId, subcategoriaId: d.subcategoriaId, proveedorId: d.proveedorId, comprobante: d.comprobante || null, notas: d.notas || null };
-      return editando ? api.put(`/gastos/${gasto.id}`, comun) : api.post('/gastos', { ...comun, fecha: d.fecha, importeCentavos: d.importeCentavos, cuentaId: d.cuentaId }, true);
+      return editando ? api.put(`/gastos/${gasto.id}`, { ...comun, motivo: d.motivo }) : api.post('/gastos', { ...comun, fecha: d.fecha, importeCentavos: d.importeCentavos, cuentaId: d.cuentaId }, true);
     },
     onSuccess: () => { avisar(editando ? 'Gasto actualizado' : 'Gasto registrado'); onListo(); onCerrar(); }, onError: avisarError,
   });
-  const valido = d.concepto.trim() && d.categoriaId && (editando || (d.importeCentavos && d.importeCentavos > 0 && d.cuentaId));
+  const valido = d.concepto.trim() && d.categoriaId && (editando ? d.motivo.trim() : (d.importeCentavos && d.importeCentavos > 0 && d.cuentaId));
   return (
     <Modal titulo={editando ? `Editar gasto G-${gasto.numero}` : 'Nuevo gasto'} onCerrar={onCerrar} ancho="max-w-xl">
       <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (valido) m.mutate(); }}>
@@ -152,6 +160,7 @@ function ModalGasto({ gasto, cats, onCerrar, onListo }: { gasto: Partial<Gasto>;
           </Campo>
           <Campo etiqueta="Comprobante (opcional)"><input className="entrada" value={d.comprobante} onChange={(e) => setD({ ...d, comprobante: e.target.value })} /></Campo>
           <Campo etiqueta="Notas" className="sm:col-span-2"><input className="entrada" value={d.notas} onChange={(e) => setD({ ...d, notas: e.target.value })} /></Campo>
+          {editando && <Campo etiqueta="Motivo de la corrección *" className="sm:col-span-2" ayuda="Queda en la auditoría junto con el antes y el después."><input className="entrada" value={d.motivo} onChange={(e) => setD({ ...d, motivo: e.target.value })} placeholder="Ej.: estaba en la categoría equivocada" /></Campo>}
         </div>
         {editando && <Aviso>El importe, la fecha y la cuenta no se editan: si están mal, anulá el gasto y cargalo de nuevo.</Aviso>}
         <div className="flex justify-end gap-2"><button type="button" className="btn-secundario" onClick={onCerrar}>Cancelar</button><button className="btn-primario" disabled={!valido || m.isPending}>{m.isPending ? 'Guardando…' : 'Guardar'}</button></div>

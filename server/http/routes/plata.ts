@@ -182,7 +182,7 @@ export async function rutasPlata(app: FastifyInstance, { base, requiere, conIdem
     const d = datosGasto.extend({ fecha, importeCentavos: entero, cuentaId: entero }).parse(req.body);
     return conIdempotencia(base, req, reply, (db) => gs.crearGasto(ctx(req, db), d));
   });
-  app.put('/gastos/:id', async (req) => { requiere(req, 'gastos', 'modificar'); const d = datosGasto.parse(req.body); return base.tx((db) => gs.editarGasto(ctx(req, db), idDe(req), d)); });
+  app.put('/gastos/:id', async (req) => { requiere(req, 'gastos', 'modificar'); const d = datosGasto.extend({ motivo: z.string().optional() }).parse(req.body); return base.tx((db) => gs.editarGasto(ctx(req, db), idDe(req), d)); });
   app.post('/gastos/:id/anular', async (req) => { requiere(req, 'gastos', 'anular'); return base.tx((db) => gs.anularGasto(ctx(req, db), idDe(req), motivo.parse(req.body).motivo)); });
   app.get('/gastos/exportar', async (req, reply) => {
     requiere(req, 'gastos', 'exportar');

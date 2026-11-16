@@ -4,13 +4,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft } from 'lucide-react';
 import { api } from '../api';
 import { useSesion } from '../sesion';
-import type { Aux, Modelo } from '../tipos';
+import { CLASIFICACIONES, type Aux, type Clasificacion, type Modelo } from '../tipos';
 import { Campo, Cargando, Encabezado, avisar, avisarError } from '../componentes/ui';
 import { Importe } from '../componentes/Importe';
 
 export interface DatosModeloForm {
   nombre: string; descripcion: string | null; categoriaId: number; subcategoriaId: number | null; genero: 'Hombre' | 'Mujer' | 'Unisex' | null;
-  marca: string | null; proveedorId: number | null; notas: string | null;
+  marca: string | null; proveedorId: number | null; notas: string | null; clasificacion: Clasificacion | null;
 }
 
 export function FormModelo({ inicial, aux, onGuardar, onCancelar, ocupado, sinBotones, onCambio }: {
@@ -20,6 +20,7 @@ export function FormModelo({ inicial, aux, onGuardar, onCancelar, ocupado, sinBo
   const [d, setDBase] = useState<Partial<DatosModeloForm>>({
     nombre: inicial?.nombre ?? '', descripcion: inicial?.descripcion ?? null, categoriaId: inicial?.categoriaId, subcategoriaId: inicial?.subcategoriaId ?? null,
     genero: inicial?.genero ?? null, marca: inicial?.marca ?? null, proveedorId: inicial?.proveedorId ?? null, notas: inicial?.notas ?? null,
+    clasificacion: inicial?.clasificacion ?? null,
   });
   const setD = (n: Partial<DatosModeloForm>) => { setDBase(n); onCambio?.(n); };
   const cats = aux.categorias.filter((c) => !c.padreId && (c.activo || c.id === d.categoriaId));
@@ -46,6 +47,11 @@ export function FormModelo({ inicial, aux, onGuardar, onCancelar, ocupado, sinBo
         <Campo etiqueta="Proveedor / taller">
           <select className="entrada" value={d.proveedorId ?? ''} onChange={(e) => setD({ ...d, proveedorId: e.target.value ? Number(e.target.value) : null })}>
             <option value="">Sin asignar</option>{aux.proveedores.filter((p) => p.activo || p.id === d.proveedorId).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+          </select>
+        </Campo>
+        <Campo etiqueta="Tipo de producto" ayuda="Los productos comprados terminados no llevan receta.">
+          <select className="entrada" value={d.clasificacion ?? ''} onChange={(e) => setD({ ...d, clasificacion: (e.target.value || null) as Clasificacion | null })}>
+            <option value="">Sin clasificar</option>{Object.entries(CLASIFICACIONES).map(([k, t]) => <option key={k} value={k}>{t}</option>)}
           </select>
         </Campo>
         <Campo etiqueta="Marca"><input className="entrada" value={d.marca ?? ''} onChange={(e) => setD({ ...d, marca: e.target.value || null })} placeholder="Herencia Cuero" /></Campo>

@@ -9,7 +9,8 @@ pause
 rem Copia de seguridad de la base antes de actualizar (por si la version nueva cambia su estructura).
 if exist datos\herencia.db (
   if not exist datos\backups mkdir datos\backups
-  powershell -NoProfile -Command "Copy-Item 'datos\herencia.db' ('datos\backups\antes-de-actualizar-' + (Get-Date -Format 'yyyy-MM-dd-HHmm') + '.db')" || (echo No se pudo copiar la base: no se actualiza & pause & exit /b 1)
+  rem Se copian tambien herencia.db-wal y -shm: ahi pueden estar los ultimos cambios todavia no volcados a la base.
+  powershell -NoProfile -Command "$ErrorActionPreference='Stop'; $d='datos\backups\antes-de-actualizar-' + (Get-Date -Format 'yyyy-MM-dd-HHmm') + '.db'; Copy-Item 'datos\herencia.db' $d; foreach ($x in '-wal','-shm') { if (Test-Path ('datos\herencia.db' + $x)) { Copy-Item ('datos\herencia.db' + $x) ($d + $x) } }" || (echo No se pudo copiar la base: no se actualiza & pause & exit /b 1)
   echo Copia de la base guardada en datos\backups.
 )
 set TMPZIP=%TEMP%\herencia-actualizacion.zip

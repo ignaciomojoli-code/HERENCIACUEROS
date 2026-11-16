@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeftRight, CreditCard, Download, HandCoins, LogOut, Scale } from 'lucide-react';
+import { ArrowLeftRight, CreditCard, Download, HandCoins, LogOut, Receipt, Scale, ShoppingBag } from 'lucide-react';
 import { api, qs } from '../api';
 import { useSesion } from '../sesion';
 import { Aviso, Campo, Cargando, Confirmar, Encabezado, ErrorCarga, Modal, Vacio, avisar, avisarError } from '../componentes/ui';
@@ -38,6 +38,8 @@ export function PaginaCaja() {
   return (
     <>
       <Encabezado titulo="Caja" sub="Dónde está la plata. Cada movimiento queda registrado; para corregir se anula, no se borra.">
+        {puede('ventas', 'crear') && <Link className="btn-primario" to="/ventas/nueva"><ShoppingBag className="h-4 w-4" />Nueva venta</Link>}
+        {puede('gastos', 'crear') && <Link className="btn-secundario" to="/gastos?nuevo=1"><Receipt className="h-4 w-4" />Gasto</Link>}
         {puede('caja', 'exportar') && <a className="btn-secundario" href={'/api/caja/exportar' + qs({ ...f, pagina: undefined })}><Download className="h-4 w-4" />Excel</a>}
       </Encabezado>
       {puede('caja', 'crear') && (

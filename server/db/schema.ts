@@ -142,6 +142,10 @@ export const proveedores = sqliteTable('proveedores', {
   direccion: text('direccion'),
   condiciones: text('condiciones'),
   plazoPagoDias: integer('plazo_pago_dias'),
+  /** Qué nos provee: taller (fabrica para nosotros), materiales, producto terminado, servicios u otro. null = pendiente. */
+  rol: text('rol', { enum: ['taller', 'materiales', 'producto_terminado', 'servicios', 'otro'] }),
+  /** Cómo se le paga: al pedir, al recibir, a plazo (plazoPagoDias) o en cuenta corriente. null = pendiente. */
+  condicionPago: text('condicion_pago', { enum: ['al_pedir', 'al_recibir', 'a_plazo', 'cuenta_corriente'] }),
   notas: text('notas'),
   /** 'prospecto' = relevado pero sin compras todavía */
   estado: text('estado', { enum: ['activo', 'prospecto'] }).notNull().default('activo'),
@@ -163,6 +167,8 @@ export const modelos = sqliteTable('modelos', {
   proveedorId: integer('proveedor_id').references(() => proveedores.id),
   /** Alícuota de impuesto aplicable, en puntos básicos (2100 = 21%). null = no aplica / pendiente. */
   impuestoBp: integer('impuesto_bp'),
+  /** Tipo de producto. null = pendiente de clasificar. Los comprados terminados no llevan receta. */
+  clasificacion: text('clasificacion', { enum: ['producto_comprado', 'fabricacion_propia', 'materia_prima', 'material_produccion', 'insumo', 'otro'] }),
   imagen: text('imagen'),
   notas: text('notas'),
   activo: activo(),
@@ -567,6 +573,8 @@ export const materiales = sqliteTable('materiales', {
   nombre: text('nombre').notNull(),
   unidad: text('unidad', { enum: ['m', 'u', 'par', 'kg'] }).notNull().default('u'),
   tipo: text('tipo', { enum: ['material', 'mano_obra'] }).notNull().default('material'),
+  /** Materia prima (cuero), material de producción (avíos, forrería), insumo (bolsas, etiquetas) u otro. null = pendiente. */
+  clasificacion: text('clasificacion', { enum: ['materia_prima', 'material_produccion', 'insumo', 'otro'] }),
   /** Costo por unidad en centavos. null = pendiente. */
   costoCentavos: integer('costo_centavos'),
   proveedorId: integer('proveedor_id').references(() => proveedores.id),

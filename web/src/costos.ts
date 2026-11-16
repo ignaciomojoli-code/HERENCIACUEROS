@@ -9,7 +9,10 @@ export interface Material {
   id: number; codigo: string; nombre: string; unidad: Unidad; tipo: 'material' | 'mano_obra'; costoCentavos?: number | null;
   proveedorId: number | null; proveedor: string | null; stockMinimoMil: number | null; notas: string | null; activo: boolean;
   stockMil: number | null; modelosQueLoUsan: number;
+  clasificacion: ClasificacionMaterial | null;
 }
+export const CLASIF_MATERIAL = { materia_prima: 'Materia prima', material_produccion: 'Material de producción', insumo: 'Insumo', otro: 'Otro' } as const;
+export type ClasificacionMaterial = keyof typeof CLASIF_MATERIAL;
 export interface MovMaterial {
   id: number; fecha: string; tipo: 'inicial' | 'compra' | 'ajuste' | 'produccion' | 'anulacion'; cantidadMil: number; costoUnitarioCentavos?: number | null;
   proveedor: string | null; comprobante: string | null; motivo: string | null; anulaId: number | null; anulado: boolean; saldoMil: number;

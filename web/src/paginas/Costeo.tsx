@@ -35,7 +35,8 @@ export function PaginaCosteo() {
   if (todos.isLoading) return <Cargando />;
   if (todos.isError) return <ErrorCarga error={todos.error} />;
   const conReceta = new Set(todos.data!.map((m) => m.modeloId));
-  const sinReceta = (modelos.data ?? []).filter((m) => !conReceta.has(m.id));
+  // Los productos comprados terminados no llevan receta: no se ofrecen.
+  const sinReceta = (modelos.data ?? []).filter((m) => !conReceta.has(m.id) && m.clasificacion !== 'producto_comprado');
   const porActualizar = todos.data!.reduce((s, m) => s + m.variantes.filter((v) => v.cambia && !v.pendientes.length).length, 0);
   return (
     <>

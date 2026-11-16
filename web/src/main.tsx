@@ -1,7 +1,7 @@
 import { PaginaParaPedir } from './paginas/ParaPedir';
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
 import './estilos.css';
 import { api } from './api';
@@ -40,6 +40,12 @@ import { PaginaCuentasFormas } from './paginas/CuentasFormas';
 
 const cliente = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 15_000, refetchOnWindowFocus: false } } });
 
+/** Caja es la pantalla de inicio: los enlaces viejos a /caja llevan ahí, con sus filtros. */
+function IrACaja() {
+  const loc = useLocation();
+  return <Navigate to={{ pathname: '/', search: loc.search }} replace />;
+}
+
 function App() {
   const qc = useQueryClient();
   const estado = useQuery({ queryKey: ['estado'], queryFn: () => api.get<{ configurado: boolean }>('/estado') });
@@ -67,7 +73,8 @@ function App() {
     <ProveedorSesion valor={{ usuario, puede, salir, cotizUsd: config.data?.cotizaciones?.usdCentavos ?? null }}>
       <Marco>
         <Routes>
-          <Route path="/" element={<PaginaInicio />} />
+          <Route path="/" element={puede('caja') ? <PaginaCaja /> : <PaginaInicio />} />
+          <Route path="/resumen" element={<PaginaInicio />} />
           {puede('catalogo') && <Route path="/catalogo" element={<PaginaCatalogo />} />}
           {puede('catalogo', 'crear') && <Route path="/catalogo/nuevo" element={<PaginaModeloNuevo />} />}
           {puede('catalogo') && <Route path="/catalogo/:id" element={<PaginaModelo />} />}
@@ -88,7 +95,7 @@ function App() {
           {puede('ventas') && <Route path="/ventas" element={<PaginaVentas />} />}
           {puede('ventas', 'crear') && <Route path="/ventas/nueva" element={<PaginaVentaNueva />} />}
           {puede('ventas') && <Route path="/ventas/:id" element={<PaginaVenta />} />}
-          {puede('caja') && <Route path="/caja" element={<PaginaCaja />} />}
+          {puede('caja') && <Route path="/caja" element={<IrACaja />} />}
           {puede('caja') && <Route path="/pagos" element={<PaginaPagos />} />}
           {puede('caja') && <Route path="/cuentas" element={<PaginaCuentasFormas />} />}
           {puede('gastos') && <Route path="/gastos" element={<PaginaGastos />} />}

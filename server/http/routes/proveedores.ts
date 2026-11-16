@@ -13,7 +13,9 @@ const esquema = z.object({
   nombre: z.string().trim().min(1), razonSocial: opt, cuit: opt, rubro: opt, contacto: opt, telefono: opt, email: opt,
   direccion: opt, condiciones: opt, plazoPagoDias: z.number().int().min(0).nullable().optional(), notas: opt,
   estado: z.enum(['activo', 'prospecto']).default('activo'), activo: z.boolean().default(true),
-});
+  rol: z.enum(['taller', 'materiales', 'producto_terminado', 'servicios', 'otro']).nullable().optional(),
+  condicionPago: z.enum(['al_pedir', 'al_recibir', 'a_plazo', 'cuenta_corriente']).nullable().optional(),
+}).refine((d) => d.condicionPago !== 'a_plazo' || (d.plazoPagoDias ?? 0) > 0, { message: 'Si se paga a plazo, indicá los días', path: ['plazoPagoDias'] });
 
 export async function rutasProveedores(app: FastifyInstance, { base, requiere }: Api) {
   app.get('/proveedores', async (req) => { requiere(req, 'proveedores'); return base.db.select().from(proveedores).orderBy(asc(proveedores.nombre)).all(); });
@@ -38,7 +40,7 @@ export async function rutasProveedores(app: FastifyInstance, { base, requiere }:
       const antes = db.select().from(proveedores).where(eq(proveedores.id, id)).get();
       if (!antes) throw noEncontrado('El proveedor');
       if (db.select().from(proveedores).all().some((p) => p.id !== id && normalizarClave(p.nombre) === normalizarClave(d.nombre))) throw new ErrorNegocio('Ya existe un proveedor con ese nombre', 409);
-      const despues = db.update(proveedores).set({ ...d, plazoPagoDias: d.plazoPagoDias ?? null, actualizadoEn: ahora() }).where(eq(proveedores.id, id)).returning().get();
+      const despues = db.update(proveedores).set({ ...d, plazoPagoDias: d.plazoPagoDias ?? null, rol: d.rol === undefined ? antes.rol : d.rol, condicionPago: d.condicionPago === undefined ? antes.condicionPago : d.condicionPago, actualizadoEn: ahora() }).where(eq(proveedores.id, id)).returning().get();
       auditar(db, { usuarioId: u.id, accion: 'modificar', entidad: 'proveedor', entidadId: id, antes, despues });
       return despues;
     });

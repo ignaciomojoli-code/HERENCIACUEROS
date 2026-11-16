@@ -30,6 +30,7 @@ const esquemaModelo = z.object({
   unidadId: z.number().int().nullable().optional(),
   proveedorId: z.number().int().nullable().optional(),
   impuestoBp: z.number().int().min(0).max(10000).nullable().optional(),
+  clasificacion: z.enum(cat.CLASIFICACIONES).nullable().optional(),
   notas: textoOpc,
 });
 
@@ -126,8 +127,13 @@ export async function rutasCatalogo(app: FastifyInstance, { base, requiere, conI
   // ── Modelos ──
   app.get('/catalogo/modelos', async (req) => {
     requiere(req, 'catalogo');
-    const q = z.object({ q: z.string().optional(), categoriaId: z.coerce.number().int().optional(), estado: z.enum(['activos', 'inactivos', 'todos']).default('activos') }).parse(req.query);
+    const q = z.object({ q: z.string().optional(), categoriaId: z.coerce.number().int().optional(), estado: z.enum(['activos', 'inactivos', 'todos']).default('activos'), clasificacion: z.enum([...cat.CLASIFICACIONES, 'pendiente']).optional() }).parse(req.query);
     return sinStock(req, filtrarCostos(req, cat.listarModelos(base.db, q)));
+  });
+  app.post('/catalogo/modelos/clasificar', async (req) => {
+    requiere(req, 'catalogo', 'modificar');
+    const d = z.object({ ids: z.array(z.number().int()).min(1), clasificacion: z.enum(cat.CLASIFICACIONES).nullable() }).parse(req.body);
+    return base.tx((db) => cat.clasificarModelos(ctx(req, db), d.ids, d.clasificacion));
   });
   app.get('/catalogo/modelos/:id', async (req) => { requiere(req, 'catalogo'); return sinStock(req, filtrarCostos(req, cat.obtenerModelo(base.db, idParam(req)))); });
 

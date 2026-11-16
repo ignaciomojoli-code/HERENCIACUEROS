@@ -43,6 +43,13 @@
       "when": 1794842866551,
       "tag": "0005_lista_pedido",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1794851508629,
+      "tag": "0006_clasificacion_y_proveedores",
+      "breakpoints": true
     }
   ]
 }
