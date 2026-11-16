@@ -42,8 +42,10 @@ export function totalesVentas(db: DB, desde: string, hasta: string): Totales {
     where v.estado = 'confirmada' and v.fecha between ${desde} and ${hasta}`)!;
   const com = db.get<{ c: number }>(sql`
     select coalesce(sum(coalesce(p.comision_real_centavos, p.comision_estimada_centavos)), 0) as c
-    from venta_pagos p join ventas v on v.id = p.venta_id where v.estado = 'confirmada' and v.fecha between ${desde} and ${hasta}`)!;
-  const total = n(it.total), costo = n(it.costo), comision = n(com.c), sinCostoT = n(it.sinCostoT);
+    from venta_pagos p join ventas v on v.id = p.venta_id where p.estado = 'activo' and v.estado = 'confirmada' and v.fecha between ${desde} and ${hasta}`)!;
+  // Descuentos sobre el total de la venta (los de cada producto ya están en su precio).
+  const desc = n(db.get<{ d: number }>(sql`select coalesce(sum(descuento_centavos), 0) as d from ventas where estado = 'confirmada' and fecha between ${desde} and ${hasta}`)!.d);
+  const total = n(it.total) - desc, costo = n(it.costo), comision = n(com.c), sinCostoT = n(it.sinCostoT);
   return {
     ventas: n(it.ventas), unidades: n(it.unidades), totalCentavos: total, costoCentavos: costo, comisionCentavos: comision,
     // Las ventas de productos sin costo no suman ganancia (no se puede saber).
@@ -66,7 +68,7 @@ export function panel(db: DB, desde: string, hasta: string) {
   const gastosAnt = totalGastos(db, antDesde, antHasta);
 
   const porDiaFilas = db.all<{ fecha: string; total: number; ventas: number }>(sql`
-    select v.fecha, sum(i.cantidad * i.precio_centavos) as total, count(distinct v.id) as ventas
+    select v.fecha, sum(i.cantidad * i.precio_centavos) - (select coalesce(sum(v2.descuento_centavos), 0) from ventas v2 where v2.estado = 'confirmada' and v2.fecha = v.fecha) as total, count(distinct v.id) as ventas
     from ventas v join venta_items i on i.venta_id = v.id where v.estado = 'confirmada' and v.fecha between ${desde} and ${hasta} group by v.fecha`);
   const porDia: { fecha: string; totalCentavos: number; ventas: number }[] = [];
   for (let f = desde; f <= hasta && porDia.length < 400; f = sumarDias(f, 1)) {
@@ -77,7 +79,7 @@ export function panel(db: DB, desde: string, hasta: string) {
   const porFormaPago = db.all<{ forma: string; importe: number; comision: number; cobros: number }>(sql`
     select f.nombre as forma, sum(p.importe_centavos) as importe, sum(coalesce(p.comision_real_centavos, p.comision_estimada_centavos)) as comision, count(*) as cobros
     from venta_pagos p join ventas v on v.id = p.venta_id join formas_pago f on f.id = p.forma_pago_id
-    where v.estado = 'confirmada' and v.fecha between ${desde} and ${hasta} group by f.id order by importe desc`)
+    where p.estado = 'activo' and v.estado = 'confirmada' and v.fecha between ${desde} and ${hasta} group by f.id order by importe desc`)
     .map((r) => ({ forma: r.forma, importeCentavos: n(r.importe), comisionCentavos: n(r.comision), cobros: n(r.cobros) }));
 
   const porCategoria = db.all<{ categoria: string; unidades: number; total: number; costo: number; sinCosto: number }>(sql`

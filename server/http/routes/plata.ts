@@ -81,8 +81,13 @@ export async function rutasPlata(app: FastifyInstance, { base, requiere, conIdem
   });
   app.post('/caja/liquidaciones', async (req, reply) => {
     requiere(req, 'caja', 'crear');
-    const d = z.object({ fecha, origenId: entero, destinoId: entero, brutoCentavos: entero, netoCentavos: entero, concepto: opt(z.string()) }).parse(req.body);
+    const d = z.object({ fecha, origenId: entero, destinoId: entero, brutoCentavos: entero, netoCentavos: entero, concepto: opt(z.string()), cobroIds: z.array(entero).optional() }).parse(req.body);
     return conIdempotencia(base, req, reply, (db) => cj.liquidar(ctx(req, db), d));
+  });
+  app.get('/caja/cobros-a-liquidar', async (req) => {
+    requiere(req, 'caja');
+    const { cuentaId } = z.object({ cuentaId: z.coerce.number().int() }).parse(req.query);
+    return cj.cobrosALiquidar(base.db, cuentaId);
   });
   app.post('/caja/aportes', async (req, reply) => {
     requiere(req, 'caja', 'crear');
@@ -122,6 +127,14 @@ export async function rutasPlata(app: FastifyInstance, { base, requiere, conIdem
   const filtroVentas = z.object({
     desde: fecha.optional(), hasta: fecha.optional(), q: z.string().optional(), formaPagoId: z.coerce.number().int().optional(),
     estado: z.enum(['confirmada', 'anulada']).optional(), pagina: z.coerce.number().int().min(1).default(1),
+    clienteId: z.coerce.number().int().optional(), conSaldo: z.enum(['true', 'false']).optional().transform((v) => v === 'true'),
+  });
+  const cobro = z.object({ formaPagoId: entero, importeCentavos: entero, importeMonedaCentavos: opt(entero), comisionRealCentavos: opt(entero) });
+  const datosVenta = z.object({
+    fecha, cliente: opt(z.string()), clienteId: opt(entero), listaPrecioId: opt(entero), notas: opt(z.string()),
+    descuentoCentavos: entero.min(0).default(0), motivoDescuento: opt(z.string()),
+    items: z.array(z.object({ varianteId: entero, cantidad: entero, precioCentavos: entero })),
+    pagos: z.array(cobro),
   });
   app.get('/ventas', async (req) => { requiere(req, 'ventas'); return filtrarCostos(req, vt.listarVentas(base.db, filtroVentas.parse(req.query)), GANANCIA); });
   app.get('/ventas/:id', async (req) => { requiere(req, 'ventas'); return filtrarCostos(req, vt.obtenerVenta(base.db, idDe(req)), GANANCIA); });
@@ -132,12 +145,28 @@ export async function rutasPlata(app: FastifyInstance, { base, requiere, conIdem
   });
   app.post('/ventas', async (req, reply) => {
     requiere(req, 'ventas', 'crear');
-    const d = z.object({
-      fecha, cliente: opt(z.string()), listaPrecioId: opt(entero), notas: opt(z.string()),
-      items: z.array(z.object({ varianteId: entero, cantidad: entero, precioCentavos: entero })),
-      pagos: z.array(z.object({ formaPagoId: entero, importeCentavos: entero, importeMonedaCentavos: opt(entero), comisionRealCentavos: opt(entero) })),
-    }).parse(req.body);
+    const d = datosVenta.parse(req.body);
     return conIdempotencia(base, req, reply, (db) => vt.crearVenta(ctx(req, db), d));
+  });
+  app.put('/ventas/:id', async (req) => {
+    requiere(req, 'ventas', 'modificar');
+    const d = datosVenta.extend({ motivo: z.string() }).parse(req.body);
+    return base.tx((db) => vt.editarVenta(ctx(req, db), idDe(req), d, d.motivo));
+  });
+  app.get('/ventas/:id/versiones/:version', async (req) => {
+    requiere(req, 'ventas');
+    const v = Number((req.params as { version: string }).version);
+    const x = vt.versionVenta(base.db, idDe(req), v);
+    return { ...x, datos: filtrarCostos(req, x.datos as object, GANANCIA) };
+  });
+  app.post('/ventas/:id/cobros', async (req, reply) => {
+    requiere(req, 'ventas', 'crear');
+    const d = cobro.extend({ fecha }).parse(req.body);
+    return conIdempotencia(base, req, reply, (db) => vt.cobrarSaldo(ctx(req, db), idDe(req), d));
+  });
+  app.post('/ventas/cobros/:id/anular', async (req) => {
+    requiere(req, 'ventas', 'anular');
+    return base.tx((db) => vt.anularCobro(ctx(req, db), idDe(req), motivo.parse(req.body).motivo));
   });
   app.post('/ventas/:id/anular', async (req) => {
     requiere(req, 'ventas', 'anular');
@@ -157,7 +186,8 @@ export async function rutasPlata(app: FastifyInstance, { base, requiere, conIdem
     return enviarExport(reply, f.formato, 'ventas', [
       { clave: 'numero', titulo: 'N°', tipo: 'numero' }, { clave: 'fecha', titulo: 'Fecha', tipo: 'texto' }, { clave: 'skus', titulo: 'Códigos', tipo: 'texto' },
       { clave: 'productos', titulo: 'Productos', tipo: 'texto' }, { clave: 'unidades', titulo: 'Unidades', tipo: 'numero' }, { clave: 'formas', titulo: 'Forma de pago', tipo: 'texto' },
-      { clave: 'listaCentavos', titulo: 'Precio de lista', tipo: 'dinero' }, { clave: 'totalCentavos', titulo: 'Total cobrado', tipo: 'dinero' },
+      { clave: 'listaCentavos', titulo: 'Precio de lista', tipo: 'dinero' }, { clave: 'descuentoCentavos', titulo: 'Descuento sobre el total', tipo: 'dinero' }, { clave: 'totalCentavos', titulo: 'Total', tipo: 'dinero' },
+      { clave: 'saldoCentavos', titulo: 'Falta cobrar', tipo: 'dinero' },
       { clave: 'diferenciaListaCentavos', titulo: 'Diferencia vs lista', tipo: 'dinero' }, { clave: 'comisionCentavos', titulo: 'Comisión', tipo: 'dinero' },
       ...(costos ? [{ clave: 'costoMercaderiaCentavos', titulo: 'Costo mercadería', tipo: 'dinero' as const }, { clave: 'gananciaCentavos', titulo: 'Ganancia', tipo: 'dinero' as const }] : []),
       { clave: 'cliente', titulo: 'Cliente', tipo: 'texto' }, { clave: 'estado', titulo: 'Estado', tipo: 'texto' }, { clave: 'notas', titulo: 'Notas', tipo: 'texto' },
