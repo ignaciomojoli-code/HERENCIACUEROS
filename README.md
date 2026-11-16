@@ -37,6 +37,14 @@ Siguiente etapa: carga de los datos reales, pruebas en el local e instalación.
 
 Para que arranque solo al prender la compu: poner un acceso directo a `Iniciar Herencia.bat` en la carpeta de inicio (`Win + R` → `shell:startup`).
 
+### Actualizar a una versión nueva
+
+1. Cerrar la ventana del sistema.
+2. Doble clic en **`actualizar.bat`** (baja la última versión de `main`; para otra rama: `actualizar.bat nombre-de-rama`).
+3. Abrir de nuevo `Iniciar Herencia.bat`. Si la versión nueva cambia la base, se adapta sola al arrancar. Antes de actualizar se guarda una copia de la base en `datos\backups\antes-de-actualizar-….db`.
+
+La carpeta `datos` (base y backups) no se toca.
+
 ### Dónde quedan los datos
 
 - Base de datos: `datos\herencia.db` (se puede cambiar con la variable `HERENCIA_DATOS`).
