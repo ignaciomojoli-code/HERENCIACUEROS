@@ -26,7 +26,8 @@ export function PaginaGastos() {
   const [params, setParams] = useSearchParams();
   const f = { desde: params.get('desde') ?? inicioMes(), hasta: params.get('hasta') ?? hoy(), categoriaId: params.get('categoria') ?? '', subcategoriaId: params.get('sub') ?? '', cuentaId: params.get('cuenta') ?? '', q: params.get('q') ?? '', estado: params.get('estado') ?? 'activo' };
   const fijar = (k: string, v: string) => { const p = new URLSearchParams(params); if (v) p.set(k, v); else p.delete(k); if (k === 'categoria') p.delete('sub'); setParams(p, { replace: true }); };
-  const cats = useCategoriasGasto();
+  const todas = useCategoriasGasto();
+  const cats = { ...todas, data: todas.data?.filter((c) => c.ambito === 'negocio') };
   const cuentas = useCuentas();
   const filtro = { desde: f.desde, hasta: f.hasta, categoriaId: f.categoriaId, subcategoriaId: f.subcategoriaId, cuentaId: f.cuentaId, q: f.q, estado: f.estado };
   const lista = useQuery({ queryKey: ['gastos', filtro], queryFn: () => api.get<ListaGastos>('/gastos' + qs(filtro)) });
@@ -47,7 +48,7 @@ export function PaginaGastos() {
   }, { col: 'fecha', dir: 'desc' });
   return (
     <>
-      <Encabezado titulo="Gastos" sub="Gastos del local por categoría. Los gastos personales van como retiro en Caja.">
+      <Encabezado titulo="Gastos" sub="Gastos del local por categoría. Los gastos personales se cargan aparte, en Gastos personales (salen como retiro).">
         {puede('gastos', 'modificar') && <button className="btn-secundario" onClick={() => setVerCats(true)}><FolderTree className="h-4 w-4" />Categorías</button>}
         {puede('gastos', 'exportar') && <a className="btn-secundario" href={'/api/gastos/exportar' + qs(filtro)}><Download className="h-4 w-4" />Excel</a>}
         {puede('gastos', 'crear') && <button className="btn-primario" onClick={() => setEditar({ fecha: hoy() } as Partial<Gasto>)}><Plus className="h-4 w-4" />Nuevo gasto</button>}
@@ -106,7 +107,7 @@ export function PaginaGastos() {
         </div>
       )}
       {editar && <ModalGasto gasto={editar} cats={cats.data ?? []} onCerrar={() => setEditar(null)} onListo={() => inv(qc)} />}
-      {verCats && <ModalCategorias cats={cats.data ?? []} onCerrar={() => setVerCats(false)} />}
+      {verCats && <ModalCategorias cats={cats.data ?? []} ambito="negocio" onCerrar={() => setVerCats(false)} />}
       {anular && (
         <Confirmar titulo={`Anular gasto G-${anular.numero}`} textoBoton="Anular" peligro ocupado={anu.isPending} onCerrar={() => { setAnular(null); setMotivo(''); }} onConfirmar={() => anu.mutate()}>
           <p>Vuelven {pesos(anular.importeCentavos)} a {anular.cuenta} (con un movimiento de anulación). Para corregir el importe, la fecha o la cuenta, anulalo y cargalo de nuevo.</p>
@@ -171,12 +172,12 @@ function ModalGasto({ gasto, cats, onCerrar, onListo }: { gasto: Partial<Gasto>;
   );
 }
 
-function ModalCategorias({ cats, onCerrar }: { cats: CategoriaGasto[]; onCerrar: () => void }) {
+export function ModalCategorias({ cats, ambito, onCerrar }: { cats: CategoriaGasto[]; ambito: 'negocio' | 'personal'; onCerrar: () => void }) {
   const qc = useQueryClient();
   const [nueva, setNueva] = useState<{ nombre: string; padreId: number | null } | null>(null);
   const [renombrar, setRenombrar] = useState<CategoriaGasto | null>(null);
   const guardar = useMutation({
-    mutationFn: (c: { id?: number; nombre: string; padreId: number | null; activo?: boolean }) => (c.id ? api.put(`/gastos/categorias/${c.id}`, c) : api.post('/gastos/categorias', c)),
+    mutationFn: (c: { id?: number; nombre: string; padreId: number | null; activo?: boolean }) => (c.id ? api.put(`/gastos/categorias/${c.id}`, { ...c, ambito }) : api.post('/gastos/categorias', { ...c, ambito })),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['categorias-gasto'] }); setNueva(null); setRenombrar(null); }, onError: avisarError,
   });
   const principales = cats.filter((c) => !c.padreId);
@@ -196,7 +197,7 @@ function ModalCategorias({ cats, onCerrar }: { cats: CategoriaGasto[]; onCerrar:
     </div>
   );
   return (
-    <Modal titulo="Categorías de gastos" onCerrar={onCerrar} ancho="max-w-2xl">
+    <Modal titulo={ambito === 'personal' ? 'Categorías de gastos personales' : 'Categorías de gastos del local'} onCerrar={onCerrar} ancho="max-w-2xl">
       <div className="divide-y divide-arena/50">
         {principales.map((c) => <div key={c.id} className="py-1">{fila(c)}{cats.filter((s) => s.padreId === c.id).map((s) => fila(s, true))}
           {nueva?.padreId === c.id && (

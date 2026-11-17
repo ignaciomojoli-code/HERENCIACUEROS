@@ -78,6 +78,13 @@
       "when": 1794927380328,
       "tag": "0010_custodia_materiales",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1794927863398,
+      "tag": "0011_gastos_personales_importacion",
+      "breakpoints": true
     }
   ]
 }

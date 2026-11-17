@@ -18,6 +18,7 @@ import { PaginaModelo } from './paginas/Modelo';
 import { PaginaModeloNuevo } from './paginas/ModeloNuevo';
 import { PaginaPrecios } from './paginas/Precios';
 import { PaginaImportar } from './paginas/Importar';
+import { PaginaImportarCompras } from './paginas/ImportarCompras';
 import { PaginaProveedores } from './paginas/Proveedores';
 import { PaginaUsuarios } from './paginas/Usuarios';
 import { PaginaConfiguracion } from './paginas/Configuracion';
@@ -38,6 +39,7 @@ import { PaginaMateriales } from './paginas/Materiales';
 import { PaginaCosteo } from './paginas/Costeo';
 import { PaginaPreciosSugeridos } from './paginas/PreciosSugeridos';
 import { PaginaGastos } from './paginas/Gastos';
+import { PaginaGastosPersonales } from './paginas/GastosPersonales';
 import { PaginaPagos } from './paginas/Pagos';
 import { PaginaCuentasFormas } from './paginas/CuentasFormas';
 
@@ -84,6 +86,7 @@ function App() {
           {puede('catalogo') && <Route path="/tablas" element={<PaginaTablas />} />}
           {puede('precios') && <Route path="/precios" element={<PaginaPrecios />} />}
           {puede('importacion', 'crear') && <Route path="/importar" element={<PaginaImportar />} />}
+          {puede('importacion', 'crear') && puede('compras', 'crear') && <Route path="/importar-compras" element={<PaginaImportarCompras />} />}
           {puede('proveedores') && <Route path="/proveedores" element={<PaginaProveedores />} />}
           {puede('stock') && <Route path="/stock" element={<PaginaStock />} />}
           {puede('stock') && <Route path="/stock/movimientos" element={<PaginaMovimientos />} />}
@@ -105,6 +108,7 @@ function App() {
           {puede('caja') && <Route path="/pagos" element={<PaginaPagos />} />}
           {puede('caja') && <Route path="/cuentas" element={<PaginaCuentasFormas />} />}
           {puede('gastos') && <Route path="/gastos" element={<PaginaGastos />} />}
+          {puede('caja') && <Route path="/gastos-personales" element={<PaginaGastosPersonales />} />}
           {puede('panel') && <Route path="/reportes" element={<PaginaReportes />} />}
           {puede('materiales') && <Route path="/materiales" element={<PaginaMateriales />} />}
           {puede('materiales') && <Route path="/produccion" element={<PaginaProduccion />} />}

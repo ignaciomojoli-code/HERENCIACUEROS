@@ -26,6 +26,7 @@ const SECCIONES: { titulo: string; items: Item[] }[] = [
     { a: '/para-pedir', texto: 'Para pedir', icono: ListTodo, modulo: 'compras' },
     { a: '/reponer-materiales', texto: 'Reponer materiales', icono: Layers, modulo: 'compras' },
     { a: '/compras', texto: 'Pedidos y recepciones', icono: PackageCheck, modulo: 'compras' },
+    { a: '/importar-compras', texto: 'Importar compras', icono: FileUp, modulo: 'importacion', accion: 'crear' },
   ] },
   { titulo: 'Proveedores', items: [
     { a: '/proveedores', texto: 'Proveedores', icono: Truck, modulo: 'proveedores' },
@@ -38,6 +39,7 @@ const SECCIONES: { titulo: string; items: Item[] }[] = [
   ] },
   { titulo: 'Gastos y estadísticas', items: [
     { a: '/gastos', texto: 'Gastos', icono: Receipt, modulo: 'gastos' },
+    { a: '/gastos-personales', texto: 'Gastos personales', icono: User, modulo: 'caja' },
     { a: '/resumen', texto: 'Resumen', icono: Home },
     { a: '/reportes', texto: 'Estadísticas', icono: BarChart3, modulo: 'panel' },
     { a: '/auditoria', texto: 'Auditoría', icono: ShieldCheck, modulo: 'auditoria' },

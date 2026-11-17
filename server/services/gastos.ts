@@ -6,7 +6,7 @@
 import { comprasMaterialPorProveedor, ingresosMaterialDeProveedor } from './costos.js';
 import { and, asc, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
-import { ajustesProveedor, categoriasGasto, compras, cuentas, gastos, movimientosCaja, pagosProveedor, proveedores } from '../db/schema.js';
+import { ajustesProveedor, categoriasGasto, compras, cuentas, gastos, gastosPersonales, movimientosCaja, pagosProveedor, proveedores } from '../db/schema.js';
 import type { DB } from '../db/index.js';
 import { ahora } from './tiempo.js';
 import { auditar } from './auditoria.js';
@@ -24,7 +24,7 @@ export function listarCategoriasGasto(db: DB) {
   return db.select().from(categoriasGasto).orderBy(asc(categoriasGasto.orden), asc(categoriasGasto.nombre)).all();
 }
 
-export function guardarCategoriaGasto(ctx: Ctx, id: number | null, d: { nombre: string; padreId?: number | null; orden?: number; activo?: boolean }) {
+export function guardarCategoriaGasto(ctx: Ctx, id: number | null, d: { nombre: string; padreId?: number | null; orden?: number; activo?: boolean; ambito?: 'negocio' | 'personal' }) {
   const nombre = d.nombre?.trim();
   if (!nombre) throw new ErrorNegocio('Poné un nombre');
   const padreId = d.padreId ?? null;
@@ -34,10 +34,12 @@ export function guardarCategoriaGasto(ctx: Ctx, id: number | null, d: { nombre: 
     if (p.padreId) throw new ErrorNegocio('Las subcategorías van debajo de una categoría, no de otra subcategoría');
     if (id !== null && padreId === id) throw new ErrorNegocio('Una categoría no puede ser subcategoría de sí misma');
   }
+  // Una subcategoría es siempre del mismo tipo (negocio / personal) que su categoría.
+  const padre = padreId ? ctx.db.select().from(categoriasGasto).where(eq(categoriasGasto.id, padreId)).get() : null;
   const repetida = ctx.db.select().from(categoriasGasto).where(and(sql`lower(${categoriasGasto.nombre}) = lower(${nombre})`, sql`coalesce(${categoriasGasto.padreId}, 0) = ${padreId ?? 0}`)).get();
   if (repetida && repetida.id !== id) throw new ErrorNegocio('Ya existe con ese nombre');
   if (id === null) {
-    const c = ctx.db.insert(categoriasGasto).values({ nombre, padreId, orden: d.orden ?? 0, activo: d.activo ?? true, creadoEn: ahora() }).returning().get();
+    const c = ctx.db.insert(categoriasGasto).values({ nombre, padreId, ambito: padre?.ambito ?? d.ambito ?? 'negocio', orden: d.orden ?? 0, activo: d.activo ?? true, creadoEn: ahora() }).returning().get();
     auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'crear', entidad: 'categoria_gasto', entidadId: c.id, despues: c });
     return c;
   }
@@ -46,14 +48,24 @@ export function guardarCategoriaGasto(ctx: Ctx, id: number | null, d: { nombre: 
   if (padreId && ctx.db.select({ id: categoriasGasto.id }).from(categoriasGasto).where(eq(categoriasGasto.padreId, id)).limit(1).get()) {
     throw new ErrorNegocio('Esta categoría tiene subcategorías: no puede pasar a ser subcategoría');
   }
-  const c = ctx.db.update(categoriasGasto).set({ nombre, padreId, orden: d.orden ?? antes.orden, activo: d.activo ?? antes.activo }).where(eq(categoriasGasto.id, id)).returning().get();
+  const ambito = padre?.ambito ?? d.ambito ?? antes.ambito;
+  if (ambito !== antes.ambito) {
+    const usada = ambito === 'personal'
+      ? ctx.db.select({ id: gastos.id }).from(gastos).where(sql`${gastos.categoriaId} = ${id} or ${gastos.subcategoriaId} = ${id}`).limit(1).get()
+      : ctx.db.select({ id: gastosPersonales.id }).from(gastosPersonales).where(sql`${gastosPersonales.categoriaId} = ${id} or ${gastosPersonales.subcategoriaId} = ${id}`).limit(1).get();
+    if (usada) throw new ErrorNegocio(ambito === 'personal' ? 'Esta categoría ya tiene gastos del local: no puede pasar a personal. Creá una categoría personal nueva' : 'Esta categoría ya tiene gastos personales: no puede pasar a ser del local');
+    // Las subcategorías acompañan a su categoría.
+    ctx.db.update(categoriasGasto).set({ ambito }).where(eq(categoriasGasto.padreId, id)).run();
+  }
+  const c = ctx.db.update(categoriasGasto).set({ nombre, padreId, ambito, orden: d.orden ?? antes.orden, activo: d.activo ?? antes.activo }).where(eq(categoriasGasto.id, id)).returning().get();
   auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'modificar', entidad: 'categoria_gasto', entidadId: id, antes, despues: c });
   return c;
 }
 
-function validarCategoria(db: DB, categoriaId: number, subcategoriaId?: number | null) {
+export function validarCategoria(db: DB, categoriaId: number, subcategoriaId?: number | null, ambito: 'negocio' | 'personal' = 'negocio') {
   const cat = db.select().from(categoriasGasto).where(eq(categoriasGasto.id, categoriaId)).get();
   if (!cat) throw noEncontrado('La categoría');
+  if (cat.ambito !== ambito) throw new ErrorNegocio(ambito === 'negocio' ? `"${cat.nombre}" es una categoría de gastos personales: cargalo en Gastos personales (sale como retiro, no es gasto del local)` : `"${cat.nombre}" es una categoría de gastos del local`);
   if (cat.padreId) throw new ErrorNegocio('Elegí una categoría principal y, si querés, una subcategoría');
   if (!cat.activo) throw new ErrorNegocio(`La categoría ${cat.nombre} está inactiva`);
   if (subcategoriaId) {
