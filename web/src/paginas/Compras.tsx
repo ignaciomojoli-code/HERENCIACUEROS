@@ -353,6 +353,7 @@ export function PaginaCompra() {
         </table>
       </div>
       )}
+      {k.tipo === 'confeccion' && puede('materiales') && <MaterialesDelPedido compraId={k.id} abierto={k.estado === 'borrador' || k.estado === 'confirmada'} />}
       <h2 className="mb-3 mt-8 text-xl font-bold">Recepciones</h2>
       {!k.recepciones.length ? <Vacio>Todavía no entregó nada.</Vacio> : (
         <div className="space-y-3">
@@ -446,6 +447,35 @@ function ModalRecepcion({ compra, onCerrar, onListo }: { compra: Compra; onCerra
         </div>
       </div>
     </Modal>
+  );
+}
+
+interface MatPedido { materialId: number; nombre: string; unidad: Unidad; pendienteMil: number; entregadoMil: number; enTallerMil: number; faltaEntregarMil: number }
+/** Orden de producción: el material que necesita el taller para este pedido, lo que se le dio y lo que tiene. */
+function MaterialesDelPedido({ compraId, abierto }: { compraId: number; abierto: boolean }) {
+  const q = useQuery({ queryKey: ['custodia-pedido', compraId], queryFn: () => api.get<{ materiales: MatPedido[]; sinReceta: string[]; entregas: { id: number; numero: number; fecha: string; origen: string; destino: string; estado: string }[] } | null>(`/custodia/pedidos/${compraId}`) });
+  if (!q.data) return null;
+  const d = q.data;
+  return (
+    <div className="mt-6">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-xl font-bold">Material para este pedido</h2>
+        {abierto && <Link className="btn-secundario btn-chico" to={`/produccion?pedido=${compraId}`}>Entregar material</Link>}
+      </div>
+      {d.sinReceta.length > 0 && <p className="mb-2 text-sm text-bordo">Sin receta: {d.sinReceta.join(', ')}.</p>}
+      {!d.materiales.length ? <Vacio>Sin materiales por receta.</Vacio> : (
+        <div className="tarjeta overflow-x-auto">
+          <table className="tabla">
+            <thead><tr><th>Material</th><th className="num">Necesita para lo que falta</th><th className="num">Se le dio para este pedido</th><th className="num">Tiene hoy</th><th className="num">Falta entregarle</th></tr></thead>
+            <tbody>{d.materiales.map((m) => (
+              <tr key={m.materialId}><td>{m.nombre}</td><td className="num">{cant(m.pendienteMil)} {m.unidad}</td><td className="num">{cant(m.entregadoMil)}</td><td className="num">{cant(m.enTallerMil)}</td><td className={`num ${m.faltaEntregarMil > 0 ? 'font-medium text-conac' : 'text-carbon/40'}`}>{cant(m.faltaEntregarMil)}</td></tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+      {d.entregas.length > 0 && <p className="mt-2 text-sm text-carbon/60">Entregas: {d.entregas.map((e) => `E-${e.numero} (${fmtFecha(e.fecha + 'T12:00')}, ${e.origen} → ${e.destino})`).join(' · ')}</p>}
+      <p className="mt-1 text-xs text-carbon/50">Cuando el taller entrega prendas, el material se descuenta primero de lo que tiene en su poder y lo que falte, del local.</p>
+    </div>
   );
 }
 

@@ -702,10 +702,12 @@ export const movimientosMaterial = sqliteTable('movimientos_material', {
   fecha: text('fecha').notNull(),
   materialId: integer('material_id').notNull().references(() => materiales.id),
   cantidadMil: integer('cantidad_mil').notNull(),
-  tipo: text('tipo', { enum: ['inicial', 'compra', 'ajuste', 'produccion', 'anulacion'] }).notNull(),
+  tipo: text('tipo', { enum: ['inicial', 'compra', 'ajuste', 'produccion', 'anulacion', 'traslado'] }).notNull(),
   costoUnitarioCentavos: integer('costo_unitario_centavos'),
   /** Para compras de material: a quién se le compró (suma a su cuenta corriente). */
   proveedorId: integer('proveedor_id').references(() => proveedores.id),
+  /** Dónde está el material: null = en el local; si no, en poder de ese proveedor o taller (ej. Laura). */
+  ubicacionProveedorId: integer('ubicacion_proveedor_id').references(() => proveedores.id),
   comprobante: text('comprobante'),
   refTipo: text('ref_tipo'),
   refId: integer('ref_id'),
@@ -713,7 +715,28 @@ export const movimientosMaterial = sqliteTable('movimientos_material', {
   motivo: text('motivo'),
   usuarioId: integer('usuario_id').references(() => usuarios.id),
   creadoEn: creadoEn(),
-}, (t) => [index('mov_material_idx').on(t.materialId), index('mov_material_ref_idx').on(t.refTipo, t.refId)]);
+}, (t) => [index('mov_material_idx').on(t.materialId), index('mov_material_ref_idx').on(t.refTipo, t.refId), index('mov_material_ubic_idx').on(t.ubicacionProveedorId)]);
+
+/**
+ * Entrega de materiales entre lugares: del local a un taller (Laura), de vuelta al local, a o desde un proveedor.
+ * Cada línea son dos movimientos en el libro de materiales (sale de un lugar, entra en el otro): el total no cambia.
+ * Puede ir atada a un pedido de confección (la orden de producción). Se anula con movimientos contrarios.
+ */
+export const trasladosMaterial = sqliteTable('traslados_material', {
+  id: id(),
+  numero: integer('numero').notNull().unique(),
+  fecha: text('fecha').notNull(),
+  /** null = el local. */
+  origenProveedorId: integer('origen_proveedor_id').references(() => proveedores.id),
+  destinoProveedorId: integer('destino_proveedor_id').references(() => proveedores.id),
+  compraId: integer('compra_id').references(() => compras.id),
+  notas: text('notas'),
+  estado: text('estado', { enum: ['activo', 'anulado'] }).notNull().default('activo'),
+  motivoAnulacion: text('motivo_anulacion'),
+  usuarioId: integer('usuario_id').references(() => usuarios.id),
+  creadoEn: creadoEn(),
+  actualizadoEn: actualizadoEn(),
+}, (t) => [index('traslados_compra_idx').on(t.compraId)]);
 
 /**
  * Receta (lista de materiales) de un modelo. `talles` = null aplica a todos los talles;

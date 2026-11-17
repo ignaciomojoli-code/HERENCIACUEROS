@@ -71,6 +71,13 @@
       "when": 1794925481015,
       "tag": "0009_materiales_reposicion",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1794927380328,
+      "tag": "0010_custodia_materiales",
+      "breakpoints": true
     }
   ]
 }
