@@ -6,6 +6,7 @@ import { useSesion } from '../sesion';
 import { Cargando, Encabezado, ErrorCarga, Vacio } from '../componentes/ui';
 import { pct, pesos } from '../formato';
 import { hoy } from '../plata';
+import { VistaPlata, VistaSituacion } from './Estadisticas';
 
 interface FilaResultado {
   mes: string; ventasCentavos: number; costoCentavos: number; comisionesCentavos: number; ventasSinCostoCentavos: number; gananciaBrutaCentavos: number;
@@ -21,6 +22,8 @@ export function PaginaReportes() {
   const { puede } = useSesion();
   const [params, setParams] = useSearchParams();
   const vistas = [
+    ...(puede('ventas') && puede('caja') ? [{ clave: 'plata', texto: 'Facturado y plata' }] : []),
+    { clave: 'situacion', texto: 'Situación de hoy' },
     ...(puede('costos') && puede('gastos') ? [{ clave: 'resultados', texto: 'Estado de resultados' }] : []),
     ...(puede('ventas') ? [{ clave: 'productos', texto: 'Ventas por producto' }] : []),
     ...(puede('stock') ? [{ clave: 'quietos', texto: 'Stock sin movimiento' }] : []),
@@ -29,11 +32,13 @@ export function PaginaReportes() {
   const fijar = (k: Record<string, string>) => { const p = new URLSearchParams(params); Object.entries(k).forEach(([a, b]) => (b ? p.set(a, b) : p.delete(a))); setParams(p, { replace: true }); };
   return (
     <>
-      <Encabezado titulo="Reportes" sub="Calculados en el momento con lo cargado en el sistema. Se pueden bajar a Excel." />
+      <Encabezado titulo="Estadísticas" sub="Calculadas en el momento con lo cargado en el sistema. Las tablas se pueden bajar a Excel." />
       <div className="mb-4 flex flex-wrap gap-2 border-b border-arena/70">
         {vistas.map((v) => <button key={v.clave} onClick={() => fijar({ vista: v.clave })} className={`-mb-px border-b-2 px-3 py-2 text-sm ${v.clave === vista ? 'border-conac font-semibold' : 'border-transparent text-carbon/60 hover:text-carbon'}`}>{v.texto}</button>)}
       </div>
       {!vistas.length && <Vacio>Tu rol no tiene reportes disponibles.</Vacio>}
+      {vista === 'plata' && <VistaPlata params={params} fijar={fijar} />}
+      {vista === 'situacion' && <VistaSituacion />}
       {vista === 'resultados' && <Resultados params={params} fijar={fijar} />}
       {vista === 'productos' && <Productos params={params} fijar={fijar} />}
       {vista === 'quietos' && <Quietos params={params} fijar={fijar} />}
