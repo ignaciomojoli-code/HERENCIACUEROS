@@ -4,11 +4,17 @@ import { api, qs } from '../api';
 import { Campo, Cargando, Encabezado, ErrorCarga, Modal } from '../componentes/ui';
 import { fechaHora } from '../formato';
 
-interface Fila { id: number; fecha: string; usuario: string | null; accion: string; entidad: string; entidadId: string | null; antes: unknown; despues: unknown; detalle: string | null }
-const ACCIONES: Record<string, string> = { crear: 'Creó', modificar: 'Modificó', desactivar: 'Desactivó', reactivar: 'Reactivó', login: 'Ingresó', login_fallido: 'Ingreso fallido', logout: 'Salió', exportar: 'Exportó', importar: 'Importó', cambio_masivo_precios: 'Cambio masivo de precios', cambiar_precio: 'Cambió precio', cambiar_password: 'Cambió su contraseña', resetear_password: 'Reseteó contraseña', backup: 'Copia de seguridad', restaurar: 'Restauró copia', duplicar: 'Duplicó' };
+interface Fila { id: number; fecha: string; usuario: string | null; accion: string; entidad: string; entidadTexto: string; entidadId: string | null; antes: unknown; despues: unknown; detalle: string | null }
+const ACCIONES: Record<string, string> = { crear: 'Creó', modificar: 'Modificó', desactivar: 'Desactivó', reactivar: 'Reactivó', login: 'Ingresó', login_fallido: 'Ingreso fallido', logout: 'Salió', exportar: 'Exportó', importar: 'Importó', cambio_masivo_precios: 'Cambio masivo de precios', cambiar_precio: 'Cambió precio', cambiar_password: 'Cambió su contraseña', resetear_password: 'Reseteó contraseña', backup: 'Copia de seguridad', restaurar: 'Restauró copia', duplicar: 'Duplicó',
+  anular: 'Anuló', confirmar: 'Confirmó', recibir: 'Recibió', cobro: 'Cobró', aporte: 'Aporte', retiro: 'Retiro', pase: 'Pase', liquidacion: 'Liquidación', arqueo: 'Arqueo',
+  saldo_inicial: 'Saldo inicial', adjuntar: 'Adjuntó', quitar_adjunto: 'Quitó adjunto', ajuste_stock: 'Ajustó stock', stock_inicial: 'Stock inicial', ajuste_material: 'Ajustó material',
+  conteo_material: 'Contó material', ingreso_material: 'Ingresó material', aplicar: 'Aplicó', aplicar_costos: 'Aplicó costos', aplicar_precios_sugeridos: 'Aplicó precios sugeridos',
+};
+interface Opciones { usuarios: { id: number; nombre: string }[]; acciones: string[]; modulos: { clave: string; nombre: string }[] }
 
 export function PaginaAuditoria() {
-  const [f, setF] = useState({ entidad: '', desde: '', hasta: '', texto: '' });
+  const [f, setF] = useState({ modulo: '', usuarioId: '', accion: '', desde: '', hasta: '', texto: '' });
+  const op = useQuery({ queryKey: ['auditoria-opciones'], queryFn: () => api.get<Opciones>('/auditoria/opciones') });
   const [pagina, setPagina] = useState(1);
   const [detalle, setDetalle] = useState<Fila | null>(null);
   const datos = useQuery({ queryKey: ['auditoria', f, pagina], queryFn: () => api.get<{ total: number; filas: Fila[] }>('/auditoria' + qs({ ...f, pagina })) });
@@ -17,13 +23,13 @@ export function PaginaAuditoria() {
   return (
     <>
       <Encabezado titulo="Auditoría" sub="Cada cambio queda registrado con quién, cuándo, y el antes y después. No se puede borrar." />
-      <div className="mb-4 grid gap-2 sm:grid-cols-4">
-        <Campo etiqueta="Qué"><select className="entrada" value={f.entidad} onChange={(e) => set('entidad', e.target.value)}>
-          <option value="">Todo</option>{['modelo', 'variante', 'precio', 'lista_precio', 'categoria', 'color', 'talle', 'proveedor', 'usuario', 'rol', 'configuracion', 'importacion', 'backup', 'sesion', 'catalogo'].map((e) => <option key={e}>{e}</option>)}
-        </select></Campo>
+      <div className="mb-4 grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
+        <Campo etiqueta="Módulo"><select className="entrada" value={f.modulo} onChange={(e) => set('modulo', e.target.value)}><option value="">Todos</option>{op.data?.modulos.map((m) => <option key={m.clave} value={m.clave}>{m.nombre}</option>)}</select></Campo>
+        <Campo etiqueta="Usuario"><select className="entrada" value={f.usuarioId} onChange={(e) => set('usuarioId', e.target.value)}><option value="">Todos</option>{op.data?.usuarios.map((u) => <option key={u.id} value={u.id}>{u.nombre}</option>)}</select></Campo>
+        <Campo etiqueta="Acción"><select className="entrada" value={f.accion} onChange={(e) => set('accion', e.target.value)}><option value="">Todas</option>{op.data?.acciones.map((a) => <option key={a} value={a}>{ACCIONES[a] ?? a}</option>)}</select></Campo>
         <Campo etiqueta="Desde"><input className="entrada" type="date" value={f.desde} onChange={(e) => set('desde', e.target.value)} /></Campo>
         <Campo etiqueta="Hasta"><input className="entrada" type="date" value={f.hasta} onChange={(e) => set('hasta', e.target.value)} /></Campo>
-        <Campo etiqueta="Texto"><input className="entrada" value={f.texto} onChange={(e) => set('texto', e.target.value)} placeholder="Código, motivo…" /></Campo>
+        <Campo etiqueta="Texto"><input className="entrada" value={f.texto} onChange={(e) => set('texto', e.target.value)} placeholder="Número, motivo…" /></Campo>
       </div>
       {datos.isLoading ? <Cargando /> : datos.isError ? <ErrorCarga error={datos.error} /> : (
         <>
@@ -35,7 +41,7 @@ export function PaginaAuditoria() {
                   <tr key={a.id} className="cursor-pointer" onClick={() => setDetalle(a)}>
                     <td className="whitespace-nowrap">{fechaHora(a.fecha)}</td><td>{a.usuario ?? 'Sistema'}</td>
                     <td className={a.accion === 'login_fallido' ? 'text-bordo' : ''}>{ACCIONES[a.accion] ?? a.accion}</td>
-                    <td>{a.entidad}{a.entidadId ? ` #${a.entidadId}` : ''}</td>
+                    <td>{a.entidadTexto}{a.entidadId ? ` #${a.entidadId}` : ''}</td>
                     <td className="hidden max-w-xs truncate text-carbon/60 md:table-cell">{a.detalle ?? ''}</td>
                   </tr>
                 ))}
@@ -54,7 +60,7 @@ export function PaginaAuditoria() {
         </>
       )}
       {detalle && (
-        <Modal titulo={`${ACCIONES[detalle.accion] ?? detalle.accion} · ${detalle.entidad}`} onCerrar={() => setDetalle(null)} ancho="max-w-2xl">
+        <Modal titulo={`${ACCIONES[detalle.accion] ?? detalle.accion} · ${detalle.entidadTexto}`} onCerrar={() => setDetalle(null)} ancho="max-w-2xl">
           <div className="space-y-3 text-sm">
             <div>{fechaHora(detalle.fecha)} · {detalle.usuario ?? 'Sistema'}</div>
             {detalle.detalle && <div className="text-carbon/70">{detalle.detalle}</div>}

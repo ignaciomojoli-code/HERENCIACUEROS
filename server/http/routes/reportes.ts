@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { Api } from '../app.js';
 import * as rp from '../../services/reportes.js';
+import * as est from '../../services/estadisticas.js';
 import { leerConfig } from '../../services/configuracion.js';
 import { listarBackups } from '../../services/backups.js';
 import { auditar } from '../../services/auditoria.js';
@@ -40,6 +41,20 @@ export async function rutasReportes(app: FastifyInstance, { base, requiere }: Ap
     if (!puede(req, 'ventas')) throw new ErrorNegocio('El panel muestra ventas: tu rol no las puede ver', 403);
     const { desde, hasta } = rango(req);
     return sinGastos(req, filtrarCostos(req, rp.panel(base.db, desde, hasta), DERIVADOS_COSTO));
+  });
+
+  // ── Estadísticas (etapa 7) ──
+  // Facturado vs cobrado vs plata disponible: necesita ver ventas y caja.
+  app.get('/estadisticas/plata', async (req) => {
+    requiere(req, 'panel'); requiere(req, 'ventas'); requiere(req, 'caja');
+    const { desde, hasta } = rango(req);
+    return est.plata(base.db, desde, hasta);
+  });
+  // Foto de hoy. Sin permiso de costos no se ven valores a costo; sin caja, no se ven deudas.
+  app.get('/estadisticas/situacion', async (req) => {
+    requiere(req, 'panel');
+    const s = filtrarCostos(req, est.situacion(base.db), /^valor/);
+    return puede(req, 'caja') ? s : { ...s, deudas: null };
   });
 
   app.get('/alertas', async (req) => {
