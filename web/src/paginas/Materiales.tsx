@@ -120,6 +120,7 @@ function FichaMaterial({ id, onCerrar, onEditar }: { id: number; onCerrar: () =>
   const qc = useQueryClient();
   const det = useQuery({ queryKey: ['material', id], queryFn: () => api.get<DetalleMaterial>(`/materiales/${id}`) });
   const [accion, setAccion] = useState<'compra' | 'ajuste' | null>(null);
+  const [contar, setContar] = useState(false);
   const [anular, setAnular] = useState<MovMaterial | null>(null);
   const [motivo, setMotivo] = useState('');
   const anu = useMutation({
@@ -140,6 +141,7 @@ function FichaMaterial({ id, onCerrar, onEditar }: { id: number; onCerrar: () =>
             {puede('materiales', 'modificar') && <button className="btn-secundario btn-chico" onClick={() => onEditar(m)}>Editar</button>}
             {m.tipo === 'material' && puede('materiales', 'crear') && puede('costos') && <button className="btn-primario btn-chico" onClick={() => setAccion('compra')}><PackagePlus className="h-3 w-3" />Cargar compra</button>}
             {m.tipo === 'material' && puede('materiales', 'modificar') && <button className="btn-secundario btn-chico" onClick={() => setAccion('ajuste')}><SlidersHorizontal className="h-3 w-3" />Ajustar stock</button>}
+            {m.tipo === 'material' && puede('materiales', 'modificar') && <button className="btn-secundario btn-chico" onClick={() => setContar(true)}>Cargar conteo</button>}
           </div>
           {m.usadoEn.length > 0 && (
             <div><div className="etiqueta mb-1">Se usa en</div>
@@ -172,12 +174,38 @@ function FichaMaterial({ id, onCerrar, onEditar }: { id: number; onCerrar: () =>
         </div>
       )}
       {m && accion && <MovimientoMaterial material={m} tipo={accion} onCerrar={() => setAccion(null)} />}
+      {m && contar && <ConteoMaterial material={m} onCerrar={() => setContar(false)} />}
       {anular && (
         <Confirmar titulo="Anular movimiento" textoBoton="Anular" peligro ocupado={anu.isPending} onCerrar={() => setAnular(null)} onConfirmar={() => anu.mutate()}>
           <p className="mb-3 text-sm">Se agrega un movimiento contrario de {cant(-anular.cantidadMil)}. {anular.tipo === 'compra' && anular.proveedor ? `También se descuenta de la cuenta de ${anular.proveedor}.` : ''}</p>
           <Campo etiqueta="Motivo"><input className="entrada" value={motivo} onChange={(e) => setMotivo(e.target.value)} autoFocus /></Campo>
         </Confirmar>
       )}
+    </Modal>
+  );
+}
+
+/** "Hoy hay X": el sistema agrega la diferencia contra lo que tenía (no pisa lo consumido). */
+function ConteoMaterial({ material, onCerrar }: { material: DetalleMaterial; onCerrar: () => void }) {
+  const qc = useQueryClient();
+  const [d, setD] = useState({ fecha: hoy(), cantidad: '', motivo: '' });
+  const n = d.cantidad.trim() === '' ? NaN : leerCant(d.cantidad);
+  const actual = material.stockMil ?? 0;
+  const g = useMutation({
+    mutationFn: () => api.post(`/materiales/${material.id}/conteo`, { fecha: d.fecha, contadoMil: n, motivo: d.motivo || null }, true),
+    onSuccess: () => { avisar('Conteo cargado'); inv(qc); onCerrar(); }, onError: avisarError,
+  });
+  return (
+    <Modal titulo={`Conteo de ${material.nombre}`} onCerrar={onCerrar}>
+      <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (n >= 0) g.mutate(); }}>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Campo etiqueta="Fecha"><input className="entrada" type="date" value={d.fecha} onChange={(e) => setD({ ...d, fecha: e.target.value })} /></Campo>
+          <Campo etiqueta={`Cuánto hay (${UNIDADES[material.unidad]})`}><input className="entrada" inputMode="decimal" autoFocus value={d.cantidad} onChange={(e) => setD({ ...d, cantidad: e.target.value })} /></Campo>
+        </div>
+        <p className="text-sm text-carbon/70">El sistema tiene {cant(actual)} {material.unidad}.{n >= 0 && <> Se agrega un movimiento de <b>{n - actual > 0 ? '+' : ''}{cant(n - actual)} {material.unidad}</b> para que quede en {cant(n)}.</>}</p>
+        <Campo etiqueta="Notas (opcional)"><input className="entrada" value={d.motivo} onChange={(e) => setD({ ...d, motivo: e.target.value })} placeholder="Ej.: contado en el local" /></Campo>
+        <div className="flex justify-end gap-2"><button type="button" className="btn-secundario" onClick={onCerrar}>Cancelar</button><button className="btn-primario" disabled={!(n >= 0) || g.isPending}>Guardar conteo</button></div>
+      </form>
     </Modal>
   );
 }

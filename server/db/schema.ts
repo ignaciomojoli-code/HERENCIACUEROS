@@ -313,7 +313,8 @@ export const compras = sqliteTable('compras', {
   id: id(),
   numero: integer('numero').notNull().unique(),
   proveedorId: integer('proveedor_id').notNull().references(() => proveedores.id),
-  tipo: text('tipo', { enum: ['reventa', 'confeccion'] }).notNull().default('reventa'),
+  /** reventa = producto terminado; confeccion = taller; materiales = cuero, avíos, forrería (entra al stock de materiales). */
+  tipo: text('tipo', { enum: ['reventa', 'confeccion', 'materiales'] }).notNull().default('reventa'),
   fecha: text('fecha').notNull(),
   fechaEsperada: text('fecha_esperada'),
   estado: text('estado', { enum: ['borrador', 'confirmada', 'cerrada', 'anulada'] }).notNull().default('borrador'),
@@ -365,6 +366,27 @@ export const recepcionItems = sqliteTable('recepcion_items', {
   cantidad: integer('cantidad').notNull(),
   costoUnitarioCentavos: integer('costo_unitario_centavos').notNull(),
 }, (t) => [index('recepcion_items_rec_idx').on(t.recepcionId)]);
+
+/** Líneas de un pedido de materiales (cantidades en milésimas, costo por unidad entera). */
+export const compraMateriales = sqliteTable('compra_materiales', {
+  id: id(),
+  compraId: integer('compra_id').notNull().references(() => compras.id),
+  materialId: integer('material_id').notNull().references(() => materiales.id),
+  cantidadMil: integer('cantidad_mil').notNull(),
+  costoUnitarioCentavos: integer('costo_unitario_centavos').notNull(),
+  notas: text('notas'),
+}, (t) => [index('compra_materiales_compra_idx').on(t.compraId)]);
+
+/** Lo que llegó de un pedido de materiales en cada recepción. Cada línea genera un movimiento en el libro de materiales. */
+export const recepcionMateriales = sqliteTable('recepcion_materiales', {
+  id: id(),
+  recepcionId: integer('recepcion_id').notNull().references(() => recepciones.id),
+  compraMaterialId: integer('compra_material_id').notNull().references(() => compraMateriales.id),
+  materialId: integer('material_id').notNull().references(() => materiales.id),
+  cantidadMil: integer('cantidad_mil').notNull(),
+  costoUnitarioCentavos: integer('costo_unitario_centavos').notNull(),
+  movimientoId: integer('movimiento_id'),
+}, (t) => [index('recepcion_materiales_rec_idx').on(t.recepcionId)]);
 
 // ───────────────────────── Plata: cuentas y caja ─────────────────────────
 
@@ -706,3 +728,23 @@ export const recetaItems = sqliteTable('receta_items', {
   notas: text('notas'),
   orden: integer('orden').notNull().default(0),
 }, (t) => [index('receta_modelo_idx').on(t.modeloId)]);
+
+/**
+ * Decisiones sobre la reposición de materiales (la necesidad en sí se calcula: ventas pendientes de pedir al taller,
+ * pedidos al taller sin entregar, stock y lo ya pedido). Acá quedan: posponer hasta una
+ * fecha, descartar lo que falta hoy y cambiar el proveedor. Nada se borra: se marca usada (al armar el pedido) o anulada.
+ */
+export const necesidadesMaterial = sqliteTable('necesidades_material', {
+  id: id(),
+  materialId: integer('material_id').notNull().references(() => materiales.id),
+  tipo: text('tipo', { enum: ['posponer', 'descartar', 'proveedor'] }).notNull(),
+  cantidadMil: integer('cantidad_mil'),
+  hasta: text('hasta'),
+  proveedorId: integer('proveedor_id').references(() => proveedores.id),
+  motivo: text('motivo'),
+  estado: text('estado', { enum: ['activa', 'usada', 'anulada'] }).notNull().default('activa'),
+  compraId: integer('compra_id').references(() => compras.id),
+  usuarioId: integer('usuario_id').references(() => usuarios.id),
+  creadoEn: creadoEn(),
+  actualizadoEn: actualizadoEn(),
+}, (t) => [index('necesidades_material_idx').on(t.materialId, t.estado)]);

@@ -232,9 +232,15 @@ export function saldosProveedores(db: DB, proveedorIds?: number[]) {
   const pagado = db.select({ p: pagosProveedor.proveedorId, s: sql<number>`sum(${pagosProveedor.importeCentavos})` }).from(pagosProveedor)
     .where(and(eq(pagosProveedor.estado, 'activo'), proveedorIds ? inArray(pagosProveedor.proveedorId, proveedorIds) : undefined)).groupBy(pagosProveedor.proveedorId).all();
   const recibido = db.all<{ p: number; s: number }>(sql`
-    select c.proveedor_id as p, coalesce(sum(ri.cantidad * ri.costo_unitario_centavos), 0) as s
-    from recepcion_items ri join recepciones r on r.id = ri.recepcion_id join compras c on c.id = r.compra_id
-    where r.estado = 'activa' and c.estado != 'anulada' group by c.proveedor_id`).filter((x) => !proveedorIds || proveedorIds.includes(x.p));
+    select p, sum(s) as s from (
+      select c.proveedor_id as p, coalesce(sum(ri.cantidad * ri.costo_unitario_centavos), 0) as s
+      from recepcion_items ri join recepciones r on r.id = ri.recepcion_id join compras c on c.id = r.compra_id
+      where r.estado = 'activa' and c.estado != 'anulada' group by c.proveedor_id
+      union all
+      select c.proveedor_id as p, coalesce(sum(round(rm.cantidad_mil * rm.costo_unitario_centavos / 1000.0)), 0) as s
+      from recepcion_materiales rm join recepciones r on r.id = rm.recepcion_id join compras c on c.id = r.compra_id
+      where r.estado = 'activa' and c.estado != 'anulada' group by c.proveedor_id
+    ) group by p`).filter((x) => !proveedorIds || proveedorIds.includes(x.p));
   const comp = db.select({ p: compras.proveedorId, s: sql<number>`sum(${ajusteComprobanteSql})` }).from(compras)
     .where(proveedorIds ? inArray(compras.proveedorId, proveedorIds) : undefined).groupBy(compras.proveedorId).all();
   const mat = comprasMaterialPorProveedor(db).filter((x) => !proveedorIds || proveedorIds.includes(x.p));
@@ -252,9 +258,12 @@ export function cuentaCorrienteProveedor(db: DB, proveedorId: number) {
   const prov = db.select().from(proveedores).where(eq(proveedores.id, proveedorId)).get();
   if (!prov) throw noEncontrado('El proveedor');
   const recs = db.all<{ id: number; numero: number; fecha: string; compra: number; importe: number }>(sql`
-    select r.id, r.numero, r.fecha, c.numero as compra, coalesce(sum(ri.cantidad * ri.costo_unitario_centavos), 0) as importe
-    from recepciones r join compras c on c.id = r.compra_id join recepcion_items ri on ri.recepcion_id = r.id
-    where c.proveedor_id = ${proveedorId} and r.estado = 'activa' and c.estado != 'anulada' group by r.id`);
+    select r.id, r.numero, r.fecha, c.numero as compra,
+      (select coalesce(sum(ri.cantidad * ri.costo_unitario_centavos), 0) from recepcion_items ri where ri.recepcion_id = r.id)
+      + (select coalesce(sum(round(rm.cantidad_mil * rm.costo_unitario_centavos / 1000.0)), 0) from recepcion_materiales rm where rm.recepcion_id = r.id) as importe
+    from recepciones r join compras c on c.id = r.compra_id
+    where c.proveedor_id = ${proveedorId} and r.estado = 'activa' and c.estado != 'anulada'
+      and (exists (select 1 from recepcion_items ri where ri.recepcion_id = r.id) or exists (select 1 from recepcion_materiales rm where rm.recepcion_id = r.id))`);
   const pagos = listarPagos(db, { proveedorId });
   const lineas = [
     ...recs.map((r) => ({ fecha: r.fecha, orden: 0, tipo: 'recepcion' as const, refId: r.id, detalle: `Recepción R-${r.numero} · pedido P-${r.compra}`, debeCentavos: Number(r.importe), haberCentavos: 0 })),

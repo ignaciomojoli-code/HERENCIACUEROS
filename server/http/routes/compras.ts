@@ -22,9 +22,10 @@ const comprobante = {
 };
 const esquemaCompra = z.object({
   ...comprobante,
-  proveedorId: z.number().int(), tipo: z.enum(['reventa', 'confeccion']), fecha, fechaEsperada: fecha.nullable().optional(),
+  proveedorId: z.number().int(), tipo: z.enum(['reventa', 'confeccion', 'materiales']), fecha, fechaEsperada: fecha.nullable().optional(),
   notas: z.string().nullable().optional(),
-  items: z.array(z.object({ varianteId: z.number().int(), cantidad: z.number().int(), costoUnitarioCentavos: z.number().int(), notas: z.string().nullable().optional() })),
+  items: z.array(z.object({ varianteId: z.number().int(), cantidad: z.number().int(), costoUnitarioCentavos: z.number().int(), notas: z.string().nullable().optional() })).default([]),
+  materiales: z.array(z.object({ materialId: z.number().int(), cantidadMil: z.number().int(), costoUnitarioCentavos: z.number().int(), notas: z.string().nullable().optional() })).optional(),
 });
 /** Los importes de compras son costos: se quitan para los roles que no los pueden ver. */
 const IMPORTES = /Centavos$/;
@@ -65,9 +66,10 @@ export async function rutasCompras(app: FastifyInstance, { base, requiere, conId
     requiere(req, 'compras', 'crear');
     const d = z.object({
       fecha, comprobante: z.string().nullable().optional(), notas: z.string().nullable().optional(),
-      items: z.array(z.object({ compraItemId: z.number().int(), cantidad: z.number().int().min(0), costoUnitarioCentavos: z.number().int().optional() })),
+      items: z.array(z.object({ compraItemId: z.number().int(), cantidad: z.number().int().min(0), costoUnitarioCentavos: z.number().int().optional() })).default([]),
+      materiales: z.array(z.object({ compraMaterialId: z.number().int(), cantidadMil: z.number().int().min(0), costoUnitarioCentavos: z.number().int().optional() })).optional(),
     }).parse(req.body);
-    if (d.items.some((i) => i.costoUnitarioCentavos !== undefined) && !tienePermiso(req.usuario!.permisos, 'costos', 'modificar')) {
+    if ([...d.items, ...(d.materiales ?? [])].some((i) => i.costoUnitarioCentavos !== undefined) && !tienePermiso(req.usuario!.permisos, 'costos', 'modificar')) {
       throw new ErrorNegocio('Tu rol no puede cambiar el costo al recibir: se toma el del pedido', 403);
     }
     return conIdempotencia(base, req, reply, (db) => filtrarCostos(req, cp.recibir(ctx(req, db), idDe(req), d), /^cambiosCosto/));

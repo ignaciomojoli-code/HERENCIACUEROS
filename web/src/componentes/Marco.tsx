@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { Contact, Archive, BarChart3, Boxes, Calculator, Scissors, Sparkles, CreditCard, HandCoins, Receipt, ShoppingBag, Wallet, ClipboardList, PackageCheck, ListTodo, BookOpen, Database, FileUp, Home, LogOut, Menu, Settings, ShieldCheck, Tag, Tags, Truck, User, Users, X } from 'lucide-react';
+import { Contact, Archive, Layers, BarChart3, Boxes, Calculator, Scissors, Sparkles, CreditCard, HandCoins, Receipt, ShoppingBag, Wallet, ClipboardList, PackageCheck, ListTodo, BookOpen, Database, FileUp, Home, LogOut, Menu, Settings, ShieldCheck, Tag, Tags, Truck, User, Users, X } from 'lucide-react';
 import { useSesion } from '../sesion';
 import { Logo } from './ui';
 
@@ -24,6 +24,7 @@ const SECCIONES: { titulo: string; items: Item[] }[] = [
   ] },
   { titulo: 'Reposición y pedidos', items: [
     { a: '/para-pedir', texto: 'Para pedir', icono: ListTodo, modulo: 'compras' },
+    { a: '/reponer-materiales', texto: 'Reponer materiales', icono: Layers, modulo: 'compras' },
     { a: '/compras', texto: 'Pedidos y recepciones', icono: PackageCheck, modulo: 'compras' },
   ] },
   { titulo: 'Proveedores', items: [
