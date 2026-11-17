@@ -62,6 +62,11 @@ export async function rutasCostos(app: FastifyInstance, { base, requiere, conIde
     const d = z.object({ fecha, cantidadMil: entero, motivo: z.string(), tipo: z.enum(['ajuste', 'inicial']).optional() }).parse(req.body);
     return conIdempotencia(base, req, reply, (db) => filtrarCostos(req, co.ajustarMaterial(ctx(req, db), { ...d, materialId: idDe(req) }), IMPORTES));
   });
+  app.post('/materiales/:id/conteo', async (req, reply) => {
+    requiere(req, 'materiales', 'modificar');
+    const d = z.object({ fecha, contadoMil: entero, motivo: z.string().nullable().optional() }).parse(req.body);
+    return conIdempotencia(base, req, reply, (db) => co.contarMaterial(ctx(req, db), { ...d, materialId: idDe(req) }));
+  });
   app.post('/materiales/movimientos/:id/anular', async (req) => {
     requiere(req, 'materiales', 'anular');
     const { motivo } = z.object({ motivo: z.string() }).parse(req.body);

@@ -92,8 +92,8 @@ export function listarParaPedir(db: DB) {
 
 /** Tipo de pedido sugerido: el del último pedido a ese proveedor (taller → confección). */
 function tipoSugerido(db: DB, proveedorId: number): 'reventa' | 'confeccion' {
-  const ult = db.select({ tipo: compras.tipo }).from(compras).where(and(eq(compras.proveedorId, proveedorId), sql`${compras.estado} != 'anulada'`)).orderBy(sql`${compras.id} desc`).limit(1).get();
-  return ult?.tipo ?? 'reventa';
+  const ult = db.select({ tipo: compras.tipo }).from(compras).where(and(eq(compras.proveedorId, proveedorId), sql`${compras.estado} != 'anulada'`, sql`${compras.tipo} != 'materiales'`)).orderBy(sql`${compras.id} desc`).limit(1).get();
+  return ult?.tipo === 'confeccion' ? 'confeccion' : 'reventa';
 }
 
 /** Costo sugerido: reventa = costo actual del producto; confección = mano de obra de la receta del modelo. */

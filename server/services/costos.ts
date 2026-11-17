@@ -78,24 +78,55 @@ export { aMil };
  * el importe suma a su cuenta corriente (se paga desde Pagos a proveedores).
  */
 export function ingresarMaterial(ctx: Ctx, d: { materialId: number; fecha: string; cantidadMil: number; costoUnitarioCentavos: number; proveedorId?: number | null; comprobante?: string | null; notas?: string | null }) {
+  if (d.proveedorId && !ctx.db.select({ id: proveedores.id }).from(proveedores).where(eq(proveedores.id, d.proveedorId)).get()) throw noEncontrado('El proveedor');
+  const r = entradaMaterial(ctx, { ...d, motivo: d.notas });
+  auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'ingreso_material', entidad: 'material', entidadId: d.materialId, despues: { ...d, costoNuevo: r.costoNuevoCentavos } });
+  return r;
+}
+
+/**
+ * Entrada de material con costo: suma al libro y recalcula el costo por promedio ponderado.
+ * Con proveedorId el importe suma directo a su cuenta corriente (ingreso suelto). Las recepciones de un pedido de
+ * materiales NO llevan proveedorId: su deuda sale de la recepción del pedido (así no se cuenta dos veces).
+ */
+export function entradaMaterial(ctx: Ctx, d: { materialId: number; fecha: string; cantidadMil: number; costoUnitarioCentavos: number; proveedorId?: number | null; comprobante?: string | null; motivo?: string | null; refTipo?: string; refId?: number }) {
   const m = materialOError(ctx.db, d.materialId);
   if (m.tipo === 'mano_obra') throw new ErrorNegocio('La mano de obra no tiene stock: se paga con el pedido al taller');
   if (!Number.isInteger(d.cantidadMil) || d.cantidadMil <= 0) throw new ErrorNegocio('La cantidad tiene que ser mayor a cero');
   if (!Number.isInteger(d.costoUnitarioCentavos) || d.costoUnitarioCentavos < 0) throw new ErrorNegocio('Costo inválido');
-  if (d.proveedorId && !ctx.db.select({ id: proveedores.id }).from(proveedores).where(eq(proveedores.id, d.proveedorId)).get()) throw noEncontrado('El proveedor');
   const stock = Math.max(0, stockMateriales(ctx.db, [m.id]).get(m.id) ?? 0);
   const t = ahora();
   const mov = ctx.db.insert(movimientosMaterial).values({
     fecha: d.fecha, materialId: m.id, cantidadMil: d.cantidadMil, tipo: 'compra', costoUnitarioCentavos: d.costoUnitarioCentavos, proveedorId: d.proveedorId ?? null,
-    comprobante: d.comprobante?.trim() || null, motivo: d.notas?.trim() || null, usuarioId: ctx.usuarioId, creadoEn: t,
+    comprobante: d.comprobante?.trim() || null, motivo: d.motivo?.trim() || null, refTipo: d.refTipo ?? null, refId: d.refId ?? null, usuarioId: ctx.usuarioId, creadoEn: t,
   }).returning().get();
   const nuevo = m.costoCentavos === null || stock <= 0 ? d.costoUnitarioCentavos : Math.round((stock * m.costoCentavos + d.cantidadMil * d.costoUnitarioCentavos) / (stock + d.cantidadMil));
   if (nuevo !== m.costoCentavos) {
     ctx.db.update(materiales).set({ costoCentavos: nuevo, actualizadoEn: t }).where(eq(materiales.id, m.id)).run();
     ctx.db.insert(historialCostosMaterial).values({ materialId: m.id, anteriorCentavos: m.costoCentavos, nuevoCentavos: nuevo, fecha: t, usuarioId: ctx.usuarioId, origen: 'compra', motivo: 'Promedio ponderado', refTipo: 'mov_material', refId: mov.id }).run();
   }
-  auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'ingreso_material', entidad: 'material', entidadId: m.id, despues: { ...d, costoNuevo: nuevo } });
-  return { movimientoId: mov.id, costoAnteriorCentavos: m.costoCentavos, costoNuevoCentavos: nuevo };
+  return { movimientoId: mov.id, costoAnteriorCentavos: m.costoCentavos, costoNuevoCentavos: nuevo, material: m.nombre };
+}
+
+/**
+ * Revierte una entrada de material hecha por una recepción (movimiento contrario). Si el costo del material todavía
+ * es el que dejó esa entrada, vuelve al anterior; si no, devuelve el material para revisarlo a mano.
+ */
+export function revertirEntradaMaterial(ctx: Ctx, movId: number, motivo: string) {
+  const m = ctx.db.select().from(movimientosMaterial).where(eq(movimientosMaterial.id, movId)).get();
+  if (!m) throw noEncontrado('El movimiento');
+  const t = ahora();
+  ctx.db.insert(movimientosMaterial).values({ fecha: m.fecha, materialId: m.materialId, cantidadMil: -m.cantidadMil, tipo: 'anulacion', costoUnitarioCentavos: m.costoUnitarioCentavos, refTipo: m.refTipo, refId: m.refId, anulaId: m.id, motivo, usuarioId: ctx.usuarioId, creadoEn: t }).run();
+  const h = ctx.db.select().from(historialCostosMaterial).where(and(eq(historialCostosMaterial.refTipo, 'mov_material'), eq(historialCostosMaterial.refId, movId))).get();
+  if (!h) return null;
+  const ultimo = ctx.db.select().from(historialCostosMaterial).where(eq(historialCostosMaterial.materialId, m.materialId)).orderBy(desc(historialCostosMaterial.id)).limit(1).get()!;
+  const mat = materialOError(ctx.db, m.materialId);
+  if (ultimo.id === h.id && mat.costoCentavos === h.nuevoCentavos) {
+    ctx.db.update(materiales).set({ costoCentavos: h.anteriorCentavos, actualizadoEn: t }).where(eq(materiales.id, mat.id)).run();
+    ctx.db.insert(historialCostosMaterial).values({ materialId: mat.id, anteriorCentavos: mat.costoCentavos, nuevoCentavos: h.anteriorCentavos, fecha: t, usuarioId: ctx.usuarioId, origen: 'anulacion', motivo, refTipo: 'anula_mov_material', refId: movId }).run();
+    return null;
+  }
+  return mat.nombre;
 }
 
 export function ajustarMaterial(ctx: Ctx, d: { materialId: number; fecha: string; cantidadMil: number; motivo: string; tipo?: 'ajuste' | 'inicial' }) {
@@ -108,12 +139,30 @@ export function ajustarMaterial(ctx: Ctx, d: { materialId: number; fecha: string
   return mov;
 }
 
+/**
+ * Conteo físico: "hoy hay X". Se agrega la diferencia contra el libro (X − stock actual), así lo ya consumido por el
+ * taller no se pierde ni se cuenta dos veces. El primer conteo de un material queda como "Stock inicial".
+ */
+export function contarMaterial(ctx: Ctx, d: { materialId: number; fecha: string; contadoMil: number; motivo?: string | null }) {
+  const m = materialOError(ctx.db, d.materialId);
+  if (m.tipo === 'mano_obra') throw new ErrorNegocio('La mano de obra no tiene stock');
+  if (!Number.isInteger(d.contadoMil) || d.contadoMil < 0) throw new ErrorNegocio('La cantidad contada no puede ser negativa');
+  const stock = stockMateriales(ctx.db, [m.id]).get(m.id) ?? 0;
+  const primero = !ctx.db.select({ id: movimientosMaterial.id }).from(movimientosMaterial).where(and(eq(movimientosMaterial.materialId, m.id), eq(movimientosMaterial.tipo, 'inicial'))).get();
+  const dif = d.contadoMil - stock;
+  const texto = `Conteo: hay ${d.contadoMil / 1000} ${m.unidad} (el sistema tenía ${stock / 1000})${d.motivo?.trim() ? ' · ' + d.motivo.trim() : ''}`;
+  const mov = ctx.db.insert(movimientosMaterial).values({ fecha: d.fecha, materialId: m.id, cantidadMil: dif, tipo: primero ? 'inicial' : 'ajuste', costoUnitarioCentavos: m.costoCentavos, motivo: texto, usuarioId: ctx.usuarioId, creadoEn: ahora() }).returning().get();
+  auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'conteo_material', entidad: 'material', entidadId: m.id, antes: { stockMil: stock }, despues: { stockMil: d.contadoMil, diferenciaMil: dif }, detalle: texto });
+  return { movimientoId: mov.id, anteriorMil: stock, contadoMil: d.contadoMil, diferenciaMil: dif };
+}
+
 /** Anula un movimiento de material cargado a mano (compra, ajuste o inicial) agregando el contrario. */
 export function anularMovimientoMaterial(ctx: Ctx, movId: number, motivo: string) {
   if (!motivo?.trim()) throw new ErrorNegocio('Indicá el motivo');
   const m = ctx.db.select().from(movimientosMaterial).where(eq(movimientosMaterial.id, movId)).get();
   if (!m) throw noEncontrado('El movimiento');
   if (!['compra', 'ajuste', 'inicial'].includes(m.tipo)) throw new ErrorNegocio('Este movimiento se anula desde su documento (recepción del taller)');
+  if (m.refTipo === 'recepcion') throw new ErrorNegocio('Este ingreso vino de un pedido de materiales: se anula anulando la recepción en Compras');
   if (ctx.db.select({ id: movimientosMaterial.id }).from(movimientosMaterial).where(eq(movimientosMaterial.anulaId, movId)).get()) throw new ErrorNegocio('Ya está anulado');
   ctx.db.insert(movimientosMaterial).values({ fecha: m.fecha, materialId: m.materialId, cantidadMil: -m.cantidadMil, tipo: 'anulacion', costoUnitarioCentavos: m.costoUnitarioCentavos, proveedorId: m.proveedorId, anulaId: m.id, motivo: `Anula: ${motivo.trim()}`, usuarioId: ctx.usuarioId, creadoEn: ahora() }).run();
   auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'anular', entidad: 'mov_material', entidadId: movId, detalle: motivo });
