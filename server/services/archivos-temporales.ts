@@ -25,3 +25,9 @@ export function obtenerHoja(id: string, hoja: string) {
   return { nombre: a.nombre, hoja: h };
 }
 export const olvidarPlanilla = (id: string) => archivos.delete(id);
+/** Nombre del archivo subido (para registrar el lote). */
+export function obtenerHojaONombre(id: string) {
+  const a = archivos.get(id);
+  if (!a) throw new ErrorNegocio('El archivo expiró: volvé a subirlo', 410);
+  return { nombre: a.nombre };
+}

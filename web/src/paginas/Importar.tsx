@@ -164,7 +164,7 @@ export function PaginaImportar() {
   );
 }
 
-function Paso({ n, titulo, hecho, children }: { n: number; titulo: string; hecho: boolean; children: React.ReactNode }) {
+export function Paso({ n, titulo, hecho, children }: { n: number; titulo: string; hecho: boolean; children: React.ReactNode }) {
   return (
     <section className="mb-6">
       <div className="mb-3 flex items-center gap-3">

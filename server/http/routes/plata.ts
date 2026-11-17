@@ -5,6 +5,7 @@ import type { Api } from '../app.js';
 import * as cj from '../../services/caja.js';
 import * as vt from '../../services/ventas.js';
 import * as gs from '../../services/gastos.js';
+import * as gp from '../../services/gastosPersonales.js';
 import * as cb from '../../services/comprobantes.js';
 import { listarClientes } from '../../services/clientes.js';
 import { ErrorNegocio } from '../../services/errores.js';
@@ -199,8 +200,8 @@ export async function rutasPlata(app: FastifyInstance, { base, requiere, conIdem
 
   // ───────────── Gastos ─────────────
 
-  app.get('/gastos/categorias', async (req) => { requiere(req, 'gastos'); return gs.listarCategoriasGasto(base.db); });
-  const esquemaCat = z.object({ nombre: z.string(), padreId: opt(entero), orden: entero.optional(), activo: z.boolean().optional() });
+  app.get('/gastos/categorias', async (req) => { if (!req.usuario || !puede(req, 'gastos')) requiere(req, 'caja'); return gs.listarCategoriasGasto(base.db); });
+  const esquemaCat = z.object({ nombre: z.string(), padreId: opt(entero), orden: entero.optional(), activo: z.boolean().optional(), ambito: z.enum(['negocio', 'personal']).optional() });
   app.post('/gastos/categorias', async (req) => { requiere(req, 'gastos', 'modificar'); const d = esquemaCat.parse(req.body); return base.tx((db) => gs.guardarCategoriaGasto(ctx(req, db), null, d)); });
   app.put('/gastos/categorias/:id', async (req) => { requiere(req, 'gastos', 'modificar'); const d = esquemaCat.parse(req.body); return base.tx((db) => gs.guardarCategoriaGasto(ctx(req, db), idDe(req), d)); });
 
@@ -217,6 +218,28 @@ export async function rutasPlata(app: FastifyInstance, { base, requiere, conIdem
   });
   app.put('/gastos/:id', async (req) => { requiere(req, 'gastos', 'modificar'); const d = datosGasto.extend({ motivo: z.string().optional() }).parse(req.body); return base.tx((db) => gs.editarGasto(ctx(req, db), idDe(req), d)); });
   app.post('/gastos/:id/anular', async (req) => { requiere(req, 'gastos', 'anular'); return base.tx((db) => gs.anularGasto(ctx(req, db), idDe(req), motivo.parse(req.body).motivo)); });
+  // ───────────── Gastos personales (salen como retiro; no son gasto del local) ─────────────
+  const filtroPersonales = z.object({ desde: fecha.optional(), hasta: fecha.optional(), categoriaId: z.coerce.number().int().optional(), q: z.string().optional(), estado: z.enum(['activo', 'anulado', 'todos']).default('activo') });
+  const datosPersonal = z.object({ fecha, descripcion: z.string(), categoriaId: entero, subcategoriaId: opt(entero), importeCentavos: entero, cuentaId: entero.nullable(), notas: opt(z.string()) });
+  app.get('/gastos-personales', async (req) => { requiere(req, 'caja'); return gp.listarGastosPersonales(base.db, filtroPersonales.parse(req.query)); });
+  app.post('/gastos-personales', async (req, reply) => {
+    requiere(req, 'caja', 'crear');
+    const d = datosPersonal.parse(req.body);
+    return conIdempotencia(base, req, reply, (db) => gp.crearGastoPersonal(ctx(req, db), d));
+  });
+  app.put('/gastos-personales/:id', async (req) => { requiere(req, 'caja', 'modificar'); const d = datosPersonal.extend({ motivo: z.string().optional() }).parse(req.body); return base.tx((db) => gp.editarGastoPersonal(ctx(req, db), idDe(req), d)); });
+  app.post('/gastos-personales/:id/anular', async (req) => { requiere(req, 'caja', 'anular'); return base.tx((db) => gp.anularGastoPersonal(ctx(req, db), idDe(req), motivo.parse(req.body).motivo)); });
+  app.get('/gastos-personales/exportar', async (req, reply) => {
+    requiere(req, 'caja', 'exportar');
+    const f = filtroPersonales.extend({ formato: z.enum(['xlsx', 'csv']).default('xlsx') }).parse(req.query);
+    const { filas } = gp.listarGastosPersonales(base.db, f);
+    exportar(req, 'caja', 'gastos personales', filas.length);
+    return enviarExport(reply, f.formato, 'gastos-personales', [
+      { clave: 'numero', titulo: 'N°', tipo: 'numero' }, { clave: 'fecha', titulo: 'Fecha', tipo: 'texto' }, { clave: 'descripcion', titulo: 'Descripción', tipo: 'texto' },
+      { clave: 'categoria', titulo: 'Categoría', tipo: 'texto' }, { clave: 'subcategoria', titulo: 'Subcategoría', tipo: 'texto' }, { clave: 'importeCentavos', titulo: 'Importe', tipo: 'dinero' },
+      { clave: 'cuenta', titulo: 'Pagado con', tipo: 'texto' }, { clave: 'estado', titulo: 'Estado', tipo: 'texto' }, { clave: 'notas', titulo: 'Observaciones', tipo: 'texto' },
+    ], filas.map((g) => ({ ...g, cuenta: g.cuenta ?? 'Por fuera del local' })).reverse());
+  });
   app.get('/gastos/exportar', async (req, reply) => {
     requiere(req, 'gastos', 'exportar');
     const f = filtroGastos.extend({ formato: z.enum(['xlsx', 'csv']).default('xlsx') }).parse(req.query);

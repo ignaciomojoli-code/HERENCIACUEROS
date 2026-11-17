@@ -5,7 +5,7 @@ import { api } from './api';
 export type TipoCuenta = 'efectivo' | 'banco' | 'billetera' | 'a_liquidar' | 'externa';
 export interface Cuenta { id: number; nombre: string; tipo: TipoCuenta; moneda: 'ARS' | 'USD'; orden: number; activo: boolean; saldoCentavos?: number; saldoArsCentavos?: number; movimientos?: number }
 export interface FormaPago { id: number; nombre: string; cuentaId: number; cuenta: string; tipoCuenta: TipoCuenta; moneda: 'ARS' | 'USD'; listaPrecioId: number | null; lista: string | null; comisionBp: number; orden: number; activo: boolean }
-export interface CategoriaGasto { id: number; nombre: string; padreId: number | null; orden: number; activo: boolean }
+export interface CategoriaGasto { id: number; nombre: string; padreId: number | null; ambito: 'negocio' | 'personal'; orden: number; activo: boolean }
 
 export const TIPOS_CUENTA: Record<TipoCuenta, string> = {
   efectivo: 'Efectivo', banco: 'Banco', billetera: 'Billetera virtual', a_liquidar: 'Tarjetas a liquidar', externa: 'Externa (la paga otro)',
@@ -27,4 +27,4 @@ const usd = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'USD',
 export const dolares = (c: number | null | undefined) => (c == null ? '—' : usd.format(c / 100));
 export const enMoneda = (c: number | null | undefined, moneda: 'ARS' | 'USD', pesos: (c: number | null | undefined) => string) => (moneda === 'USD' ? dolares(c) : pesos(c));
 
-export const queriesPlata = ['cuentas', 'caja', 'ventas', 'venta', 'gastos', 'pagos', 'cuenta-corriente', 'stock', 'resumen-proveedor', 'saldos-proveedores'];
+export const queriesPlata = ['cuentas', 'caja', 'ventas', 'venta', 'gastos', 'pagos', 'cuenta-corriente', 'stock', 'resumen-proveedor', 'saldos-proveedores', 'gastos-personales'];

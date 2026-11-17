@@ -155,7 +155,7 @@ export function estadoResultados(db: DB, mesDesde: string, mesHasta: string) {
       where g.estado = 'activo' and g.fecha between ${desde} and ${hasta} group by c.id`);
     gastos.forEach((g) => categorias.add(g.categoria));
     const totalGastosMes = gastos.reduce((s, g) => s + n(g.total), 0);
-    const retiros = n(db.get<{ s: number }>(sql`select coalesce(-sum(importe_ars_centavos), 0) as s from movimientos_caja where tipo = 'retiro' and fecha between ${desde} and ${hasta}`)!.s);
+    const retiros = n(db.get<{ s: number }>(sql`select coalesce(-sum(importe_ars_centavos), 0) as s from movimientos_caja where tipo = 'retiro' and fecha between ${desde} and ${hasta} and id not in (select anula_id from movimientos_caja where anula_id is not null)`)!.s);
     const aportes = n(db.get<{ s: number }>(sql`select coalesce(sum(importe_ars_centavos), 0) as s from movimientos_caja where tipo = 'aporte' and fecha between ${desde} and ${hasta}`)!.s);
     return {
       mes, ventasCentavos: t.totalCentavos, costoCentavos: t.costoCentavos, comisionesCentavos: t.comisionCentavos, ventasSinCostoCentavos: t.ventasSinCostoCentavos,

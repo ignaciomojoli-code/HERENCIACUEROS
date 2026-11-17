@@ -330,6 +330,8 @@ export const compras = sqliteTable('compras', {
   plazoPagoDias: integer('plazo_pago_dias'),
   /** Vencimiento fijado a mano; si es null se calcula según la condición de pago. */
   vencimiento: text('vencimiento'),
+  /** Lote de importación del que salió (null = cargado a mano). */
+  importacionId: integer('importacion_id'),
   usuarioId: integer('usuario_id').references(() => usuarios.id),
   esDemo: esDemo(),
   creadoEn: creadoEn(),
@@ -548,6 +550,8 @@ export const categoriasGasto = sqliteTable('categorias_gasto', {
   id: id(),
   nombre: text('nombre').notNull(),
   padreId: integer('padre_id'),
+  /** negocio = gasto del local; personal = gasto personal (sale como retiro, no es gasto del negocio). */
+  ambito: text('ambito', { enum: ['negocio', 'personal'] }).notNull().default('negocio'),
   orden: integer('orden').notNull().default(0),
   activo: activo(),
   creadoEn: creadoEn(),
@@ -572,6 +576,29 @@ export const gastos = sqliteTable('gastos', {
   creadoEn: creadoEn(),
   actualizadoEn: actualizadoEn(),
 }, (t) => [index('gastos_fecha_idx').on(t.fecha), index('gastos_categoria_idx').on(t.categoriaId)]);
+
+/**
+ * Gastos personales (corte de pelo, lavado del auto…): NO son gasto del negocio ni costo de mercadería.
+ * Si se pagan con plata del local (cuentaId), salen de la caja como retiro; si se pagaron por fuera (cuentaId null),
+ * quedan solo registrados. Se corrigen con motivo y se anulan, no se borran.
+ */
+export const gastosPersonales = sqliteTable('gastos_personales', {
+  id: id(),
+  numero: integer('numero').notNull().unique(),
+  fecha: text('fecha').notNull(),
+  descripcion: text('descripcion').notNull(),
+  categoriaId: integer('categoria_id').notNull().references(() => categoriasGasto.id),
+  subcategoriaId: integer('subcategoria_id').references(() => categoriasGasto.id),
+  importeCentavos: integer('importe_centavos').notNull(),
+  cuentaId: integer('cuenta_id').references(() => cuentas.id),
+  notas: text('notas'),
+  estado: text('estado', { enum: ['activo', 'anulado'] }).notNull().default('activo'),
+  motivoAnulacion: text('motivo_anulacion'),
+  usuarioId: integer('usuario_id').references(() => usuarios.id),
+  esDemo: esDemo(),
+  creadoEn: creadoEn(),
+  actualizadoEn: actualizadoEn(),
+}, (t) => [index('gastos_personales_fecha_idx').on(t.fecha)]);
 
 // ───────────────────────── Pagos a proveedores ─────────────────────────
 
