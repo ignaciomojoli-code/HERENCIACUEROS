@@ -5,7 +5,7 @@
  * Nada cambia costos ni precios publicados sin una acción explícita: el costeo y los precios sugeridos
  * se muestran primero y se aplican solo lo que el usuario elige (con motivo y permiso).
  */
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { categorias, historialCostosMaterial, materiales, modelos, movimientosMaterial, precios, proveedores, recetaItems, talles, variantes } from '../db/schema.js';
 import type { DB } from '../db/index.js';
 import { ahora } from './tiempo.js';
@@ -27,6 +27,13 @@ export function stockMateriales(db: DB, ids?: number[]) {
   const filas = db.select({ m: movimientosMaterial.materialId, n: sql<number>`sum(${movimientosMaterial.cantidadMil})` }).from(movimientosMaterial)
     .where(ids ? (ids.length ? inArray(movimientosMaterial.materialId, ids) : sql`0`) : undefined).groupBy(movimientosMaterial.materialId).all();
   return new Map(filas.map((f) => [f.m, Number(f.n)]));
+}
+
+/** Stock de un material en un lugar (null = el local). */
+export function stockEn(db: DB, materialId: number, ubicacionProveedorId: number | null) {
+  const r = db.select({ n: sql<number>`coalesce(sum(${movimientosMaterial.cantidadMil}), 0)` }).from(movimientosMaterial)
+    .where(and(eq(movimientosMaterial.materialId, materialId), ubicacionProveedorId === null ? isNull(movimientosMaterial.ubicacionProveedorId) : eq(movimientosMaterial.ubicacionProveedorId, ubicacionProveedorId))).get();
+  return Number(r?.n ?? 0);
 }
 
 export function listarMateriales(db: DB) {
@@ -116,7 +123,7 @@ export function revertirEntradaMaterial(ctx: Ctx, movId: number, motivo: string)
   const m = ctx.db.select().from(movimientosMaterial).where(eq(movimientosMaterial.id, movId)).get();
   if (!m) throw noEncontrado('El movimiento');
   const t = ahora();
-  ctx.db.insert(movimientosMaterial).values({ fecha: m.fecha, materialId: m.materialId, cantidadMil: -m.cantidadMil, tipo: 'anulacion', costoUnitarioCentavos: m.costoUnitarioCentavos, refTipo: m.refTipo, refId: m.refId, anulaId: m.id, motivo, usuarioId: ctx.usuarioId, creadoEn: t }).run();
+  ctx.db.insert(movimientosMaterial).values({ fecha: m.fecha, materialId: m.materialId, cantidadMil: -m.cantidadMil, tipo: 'anulacion', costoUnitarioCentavos: m.costoUnitarioCentavos, ubicacionProveedorId: m.ubicacionProveedorId, refTipo: m.refTipo, refId: m.refId, anulaId: m.id, motivo, usuarioId: ctx.usuarioId, creadoEn: t }).run();
   const h = ctx.db.select().from(historialCostosMaterial).where(and(eq(historialCostosMaterial.refTipo, 'mov_material'), eq(historialCostosMaterial.refId, movId))).get();
   if (!h) return null;
   const ultimo = ctx.db.select().from(historialCostosMaterial).where(eq(historialCostosMaterial.materialId, m.materialId)).orderBy(desc(historialCostosMaterial.id)).limit(1).get()!;
@@ -129,12 +136,13 @@ export function revertirEntradaMaterial(ctx: Ctx, movId: number, motivo: string)
   return mat.nombre;
 }
 
-export function ajustarMaterial(ctx: Ctx, d: { materialId: number; fecha: string; cantidadMil: number; motivo: string; tipo?: 'ajuste' | 'inicial' }) {
+export function ajustarMaterial(ctx: Ctx, d: { materialId: number; fecha: string; cantidadMil: number; motivo: string; tipo?: 'ajuste' | 'inicial'; ubicacionProveedorId?: number | null }) {
   const m = materialOError(ctx.db, d.materialId);
   if (m.tipo === 'mano_obra') throw new ErrorNegocio('La mano de obra no tiene stock');
   if (!d.motivo?.trim()) throw new ErrorNegocio('Indicá el motivo');
   if (!Number.isInteger(d.cantidadMil) || d.cantidadMil === 0) throw new ErrorNegocio('La cantidad tiene que ser distinta de cero');
-  const mov = ctx.db.insert(movimientosMaterial).values({ fecha: d.fecha, materialId: m.id, cantidadMil: d.cantidadMil, tipo: d.tipo ?? 'ajuste', costoUnitarioCentavos: m.costoCentavos, motivo: d.motivo.trim(), usuarioId: ctx.usuarioId, creadoEn: ahora() }).returning().get();
+  validarUbicacion(ctx.db, d.ubicacionProveedorId ?? null);
+  const mov = ctx.db.insert(movimientosMaterial).values({ fecha: d.fecha, materialId: m.id, cantidadMil: d.cantidadMil, tipo: d.tipo ?? 'ajuste', costoUnitarioCentavos: m.costoCentavos, motivo: d.motivo.trim(), ubicacionProveedorId: d.ubicacionProveedorId ?? null, usuarioId: ctx.usuarioId, creadoEn: ahora() }).returning().get();
   auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'ajuste_material', entidad: 'material', entidadId: m.id, despues: d });
   return mov;
 }
@@ -143,17 +151,28 @@ export function ajustarMaterial(ctx: Ctx, d: { materialId: number; fecha: string
  * Conteo físico: "hoy hay X". Se agrega la diferencia contra el libro (X − stock actual), así lo ya consumido por el
  * taller no se pierde ni se cuenta dos veces. El primer conteo de un material queda como "Stock inicial".
  */
-export function contarMaterial(ctx: Ctx, d: { materialId: number; fecha: string; contadoMil: number; motivo?: string | null }) {
+export function contarMaterial(ctx: Ctx, d: { materialId: number; fecha: string; contadoMil: number; motivo?: string | null; ubicacionProveedorId?: number | null }) {
   const m = materialOError(ctx.db, d.materialId);
   if (m.tipo === 'mano_obra') throw new ErrorNegocio('La mano de obra no tiene stock');
   if (!Number.isInteger(d.contadoMil) || d.contadoMil < 0) throw new ErrorNegocio('La cantidad contada no puede ser negativa');
-  const stock = stockMateriales(ctx.db, [m.id]).get(m.id) ?? 0;
+  const ubic = d.ubicacionProveedorId ?? null;
+  const lugar = validarUbicacion(ctx.db, ubic);
+  // Se cuenta un lugar: el local o lo que tiene un taller o proveedor.
+  const stock = stockEn(ctx.db, m.id, ubic);
   const primero = !ctx.db.select({ id: movimientosMaterial.id }).from(movimientosMaterial).where(and(eq(movimientosMaterial.materialId, m.id), eq(movimientosMaterial.tipo, 'inicial'))).get();
   const dif = d.contadoMil - stock;
-  const texto = `Conteo: hay ${d.contadoMil / 1000} ${m.unidad} (el sistema tenía ${stock / 1000})${d.motivo?.trim() ? ' · ' + d.motivo.trim() : ''}`;
-  const mov = ctx.db.insert(movimientosMaterial).values({ fecha: d.fecha, materialId: m.id, cantidadMil: dif, tipo: primero ? 'inicial' : 'ajuste', costoUnitarioCentavos: m.costoCentavos, motivo: texto, usuarioId: ctx.usuarioId, creadoEn: ahora() }).returning().get();
+  const texto = `Conteo${ubic ? ' en ' + lugar : ''}: hay ${d.contadoMil / 1000} ${m.unidad} (el sistema tenía ${stock / 1000})${d.motivo?.trim() ? ' · ' + d.motivo.trim() : ''}`;
+  const mov = ctx.db.insert(movimientosMaterial).values({ fecha: d.fecha, materialId: m.id, cantidadMil: dif, tipo: primero ? 'inicial' : 'ajuste', costoUnitarioCentavos: m.costoCentavos, motivo: texto, ubicacionProveedorId: ubic, usuarioId: ctx.usuarioId, creadoEn: ahora() }).returning().get();
   auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'conteo_material', entidad: 'material', entidadId: m.id, antes: { stockMil: stock }, despues: { stockMil: d.contadoMil, diferenciaMil: dif }, detalle: texto });
   return { movimientoId: mov.id, anteriorMil: stock, contadoMil: d.contadoMil, diferenciaMil: dif };
+}
+
+/** Valida un lugar (null = el local) y devuelve su nombre. */
+export function validarUbicacion(db: DB, ubicacionProveedorId: number | null) {
+  if (ubicacionProveedorId === null) return 'el local';
+  const p = db.select({ nombre: proveedores.nombre }).from(proveedores).where(eq(proveedores.id, ubicacionProveedorId)).get();
+  if (!p) throw noEncontrado('El lugar');
+  return p.nombre;
 }
 
 /** Anula un movimiento de material cargado a mano (compra, ajuste o inicial) agregando el contrario. */
@@ -164,22 +183,28 @@ export function anularMovimientoMaterial(ctx: Ctx, movId: number, motivo: string
   if (!['compra', 'ajuste', 'inicial'].includes(m.tipo)) throw new ErrorNegocio('Este movimiento se anula desde su documento (recepción del taller)');
   if (m.refTipo === 'recepcion') throw new ErrorNegocio('Este ingreso vino de un pedido de materiales: se anula anulando la recepción en Compras');
   if (ctx.db.select({ id: movimientosMaterial.id }).from(movimientosMaterial).where(eq(movimientosMaterial.anulaId, movId)).get()) throw new ErrorNegocio('Ya está anulado');
-  ctx.db.insert(movimientosMaterial).values({ fecha: m.fecha, materialId: m.materialId, cantidadMil: -m.cantidadMil, tipo: 'anulacion', costoUnitarioCentavos: m.costoUnitarioCentavos, proveedorId: m.proveedorId, anulaId: m.id, motivo: `Anula: ${motivo.trim()}`, usuarioId: ctx.usuarioId, creadoEn: ahora() }).run();
+  ctx.db.insert(movimientosMaterial).values({ fecha: m.fecha, materialId: m.materialId, cantidadMil: -m.cantidadMil, tipo: 'anulacion', costoUnitarioCentavos: m.costoUnitarioCentavos, proveedorId: m.proveedorId, ubicacionProveedorId: m.ubicacionProveedorId, anulaId: m.id, motivo: `Anula: ${motivo.trim()}`, usuarioId: ctx.usuarioId, creadoEn: ahora() }).run();
   auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'anular', entidad: 'mov_material', entidadId: movId, detalle: motivo });
   return { ok: true, avisoCosto: m.tipo === 'compra' ? 'El costo promedio no se recalcula solo: revisalo en la ficha del material' : null };
 }
 
 export function detalleMaterial(db: DB, id: number) {
   const m = materialOError(db, id);
+  const nombres = new Map(db.select({ id: proveedores.id, nombre: proveedores.nombre }).from(proveedores).all().map((p) => [p.id, p.nombre]));
   const movs = db.select({ mv: movimientosMaterial, proveedor: proveedores.nombre }).from(movimientosMaterial).leftJoin(proveedores, eq(proveedores.id, movimientosMaterial.proveedorId))
-    .where(eq(movimientosMaterial.materialId, id)).orderBy(movimientosMaterial.fecha, movimientosMaterial.id).all();
+    .where(eq(movimientosMaterial.materialId, id)).orderBy(movimientosMaterial.fecha, movimientosMaterial.id).all()
+    .map((x) => ({ ...x, mv: { ...x.mv, ubicacion: x.mv.ubicacionProveedorId ? nombres.get(x.mv.ubicacionProveedorId) ?? '—' : 'Local' } }));
+  const porLugar = new Map<number | null, number>();
+  for (const x of movs) porLugar.set(x.mv.ubicacionProveedorId, (porLugar.get(x.mv.ubicacionProveedorId) ?? 0) + x.mv.cantidadMil);
+  const ubicaciones = [...porLugar].filter(([u, n]) => u === null || n !== 0).map(([u, n]) => ({ ubicacionProveedorId: u, ubicacion: u ? nombres.get(u) ?? '—' : 'Local', cantidadMil: n }))
+    .sort((a, b) => (a.ubicacionProveedorId === null ? -1 : b.ubicacionProveedorId === null ? 1 : a.ubicacion.localeCompare(b.ubicacion)));
   const anulados = new Set(movs.filter((x) => x.mv.anulaId).map((x) => x.mv.anulaId));
   let saldo = 0;
   const filas = movs.map((x) => ({ ...x.mv, proveedor: x.proveedor, anulado: anulados.has(x.mv.id), saldoMil: (saldo += x.mv.cantidadMil) })).reverse();
   const historial = db.select().from(historialCostosMaterial).where(eq(historialCostosMaterial.materialId, id)).orderBy(desc(historialCostosMaterial.id)).limit(100).all();
   const usadoEn = db.select({ modeloId: modelos.id, modelo: modelos.nombre, cantidadMil: recetaItems.cantidadMil, talles: recetaItems.talles }).from(recetaItems)
     .innerJoin(modelos, eq(modelos.id, recetaItems.modeloId)).where(eq(recetaItems.materialId, id)).orderBy(modelos.nombre).all();
-  return { ...m, stockMil: m.tipo === 'mano_obra' ? null : saldo, movimientos: filas, historial, usadoEn };
+  return { ...m, stockMil: m.tipo === 'mano_obra' ? null : saldo, ubicaciones: m.tipo === 'mano_obra' ? [] : ubicaciones, movimientos: filas, historial, usadoEn };
 }
 
 // ───────────── Recetas ─────────────
@@ -357,11 +382,26 @@ export function consumirPorProduccion(ctx: Ctx, recepcionId: number, numero: num
     for (const l of receta) consumo.set(l.materialId, (consumo.get(l.materialId) ?? 0) + l.cantidadMil * it.cantidad);
   }
   const t = ahora();
+  // El taller usa primero el material que tiene en su poder (lo que se le entregó); lo que falte sale del local, como antes.
+  const taller = tallerDeRecepcion(ctx.db, recepcionId);
+  const delTaller: string[] = [];
   for (const [materialId, cant] of consumo) {
     const m = materialOError(ctx.db, materialId);
-    ctx.db.insert(movimientosMaterial).values({ fecha, materialId, cantidadMil: -cant, tipo: 'produccion', costoUnitarioCentavos: m.costoCentavos, refTipo: 'recepcion', refId: recepcionId, motivo: `Producción · recepción R-${numero}`, usuarioId: ctx.usuarioId, creadoEn: t }).run();
+    const enTaller = taller ? Math.max(0, stockEn(ctx.db, materialId, taller)) : 0;
+    const partes: [number | null, number][] = [[taller, Math.min(enTaller, cant)], [null, cant - Math.min(enTaller, cant)]];
+    for (const [ubic, n] of partes) {
+      if (n <= 0) continue;
+      ctx.db.insert(movimientosMaterial).values({ fecha, materialId, cantidadMil: -n, tipo: 'produccion', costoUnitarioCentavos: m.costoCentavos, ubicacionProveedorId: ubic, refTipo: 'recepcion', refId: recepcionId, motivo: `Producción · recepción R-${numero}`, usuarioId: ctx.usuarioId, creadoEn: t }).run();
+    }
+    if (enTaller > 0) delTaller.push(m.nombre);
   }
-  return { materiales: consumo.size, sinReceta };
+  return { materiales: consumo.size, sinReceta, delTaller };
+}
+
+/** Taller (proveedor del pedido de confección) de una recepción. */
+function tallerDeRecepcion(db: DB, recepcionId: number): number | null {
+  const r = db.all<{ p: number }>(sql`select c.proveedor_id as p from recepciones r join compras c on c.id = r.compra_id where r.id = ${recepcionId}`)[0];
+  return r?.p ?? null;
 }
 
 /** Al anular una recepción de confección, vuelven los materiales consumidos. */
@@ -369,7 +409,7 @@ export function revertirProduccion(ctx: Ctx, recepcionId: number, motivo: string
   const movs = ctx.db.select().from(movimientosMaterial).where(and(eq(movimientosMaterial.refTipo, 'recepcion'), eq(movimientosMaterial.refId, recepcionId), eq(movimientosMaterial.tipo, 'produccion'))).all();
   const t = ahora();
   for (const m of movs) {
-    ctx.db.insert(movimientosMaterial).values({ fecha: m.fecha, materialId: m.materialId, cantidadMil: -m.cantidadMil, tipo: 'anulacion', costoUnitarioCentavos: m.costoUnitarioCentavos, refTipo: 'recepcion', refId: recepcionId, anulaId: m.id, motivo: `Anula producción: ${motivo}`, usuarioId: ctx.usuarioId, creadoEn: t }).run();
+    ctx.db.insert(movimientosMaterial).values({ fecha: m.fecha, materialId: m.materialId, cantidadMil: -m.cantidadMil, tipo: 'anulacion', costoUnitarioCentavos: m.costoUnitarioCentavos, ubicacionProveedorId: m.ubicacionProveedorId, refTipo: 'recepcion', refId: recepcionId, anulaId: m.id, motivo: `Anula producción: ${motivo}`, usuarioId: ctx.usuarioId, creadoEn: t }).run();
   }
 }
 

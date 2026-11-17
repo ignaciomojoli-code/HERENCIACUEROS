@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { Contact, Archive, Layers, BarChart3, Boxes, Calculator, Scissors, Sparkles, CreditCard, HandCoins, Receipt, ShoppingBag, Wallet, ClipboardList, PackageCheck, ListTodo, BookOpen, Database, FileUp, Home, LogOut, Menu, Settings, ShieldCheck, Tag, Tags, Truck, User, Users, X } from 'lucide-react';
+import { Contact, Archive, Layers, Factory, BarChart3, Boxes, Calculator, Scissors, Sparkles, CreditCard, HandCoins, Receipt, ShoppingBag, Wallet, ClipboardList, PackageCheck, ListTodo, BookOpen, Database, FileUp, Home, LogOut, Menu, Settings, ShieldCheck, Tag, Tags, Truck, User, Users, X } from 'lucide-react';
 import { useSesion } from '../sesion';
 import { Logo } from './ui';
 
@@ -32,6 +32,7 @@ const SECCIONES: { titulo: string; items: Item[] }[] = [
     { a: '/pagos', texto: 'Cuentas corrientes y pagos', icono: HandCoins, modulo: 'caja' },
   ] },
   { titulo: 'Producción', items: [
+    { a: '/produccion', texto: 'Producción y custodia', icono: Factory, modulo: 'materiales' },
     { a: '/materiales', texto: 'Materiales', icono: Scissors, modulo: 'materiales' },
     { a: '/costeo', texto: 'Recetas y costeo', icono: Calculator, modulo: 'costos' },
   ] },

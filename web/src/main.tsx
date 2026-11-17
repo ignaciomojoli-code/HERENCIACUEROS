@@ -1,5 +1,6 @@
 import { PaginaParaPedir } from './paginas/ParaPedir';
 import { PaginaReponerMateriales } from './paginas/ReponerMateriales';
+import { PaginaProduccion } from './paginas/Produccion';
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
@@ -106,6 +107,7 @@ function App() {
           {puede('gastos') && <Route path="/gastos" element={<PaginaGastos />} />}
           {puede('panel') && <Route path="/reportes" element={<PaginaReportes />} />}
           {puede('materiales') && <Route path="/materiales" element={<PaginaMateriales />} />}
+          {puede('materiales') && <Route path="/produccion" element={<PaginaProduccion />} />}
           {puede('costos') && <Route path="/costeo" element={<PaginaCosteo />} />}
           {puede('precios') && puede('costos') && <Route path="/precios/sugeridos" element={<PaginaPreciosSugeridos />} />}
           {puede('usuarios') && <Route path="/usuarios" element={<PaginaUsuarios />} />}

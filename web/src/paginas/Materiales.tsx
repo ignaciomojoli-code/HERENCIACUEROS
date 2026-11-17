@@ -137,6 +137,9 @@ function FichaMaterial({ id, onCerrar, onEditar }: { id: number; onCerrar: () =>
             {m.costoCentavos !== undefined && <div><div className="etiqueta">Costo por {m.unidad}</div><div className="text-xl font-bold">{m.costoCentavos === null ? <Pendiente /> : pesos(m.costoCentavos)}</div></div>}
             <div><div className="etiqueta">Proveedor</div><div>{m.proveedor ?? '—'}</div></div>
           </div>
+          {m.ubicaciones && m.ubicaciones.length > 1 && (
+            <div className="flex flex-wrap gap-1.5 text-sm">{m.ubicaciones.map((u) => <span key={u.ubicacionProveedorId ?? 'l'} className="pildora bg-arena/40">{u.ubicacion}: {cant(u.cantidadMil)} {m.unidad}</span>)}</div>
+          )}
           <div className="flex flex-wrap gap-2">
             {puede('materiales', 'modificar') && <button className="btn-secundario btn-chico" onClick={() => onEditar(m)}>Editar</button>}
             {m.tipo === 'material' && puede('materiales', 'crear') && puede('costos') && <button className="btn-primario btn-chico" onClick={() => setAccion('compra')}><PackagePlus className="h-3 w-3" />Cargar compra</button>}
@@ -156,7 +159,7 @@ function FichaMaterial({ id, onCerrar, onEditar }: { id: number; onCerrar: () =>
                   <thead><tr><th>Fecha</th><th>Tipo</th><th className="num">Cantidad</th><th className="num">Saldo</th><th className="hidden sm:table-cell">Detalle</th><th /></tr></thead>
                   <tbody>{m.movimientos.map((x) => (
                     <tr key={x.id} className={x.anulado ? 'text-carbon/40 line-through' : ''}>
-                      <td>{fmtFecha(x.fecha + 'T12:00')}</td><td>{TIPOS_MOV[x.tipo]}</td>
+                      <td>{fmtFecha(x.fecha + 'T12:00')}</td><td>{TIPOS_MOV[x.tipo]}{x.ubicacion && x.ubicacion !== 'Local' && <div className="text-xs text-carbon/55">{x.ubicacion}</div>}</td>
                       <td className={`num ${x.cantidadMil < 0 ? 'text-bordo' : ''}`}>{x.cantidadMil > 0 ? '+' : ''}{cant(x.cantidadMil)}</td><td className="num">{cant(x.saldoMil)}</td>
                       <td className="hidden sm:table-cell text-xs">{[x.proveedor, x.comprobante, x.motivo, x.costoUnitarioCentavos != null && x.tipo === 'compra' ? `${pesos(x.costoUnitarioCentavos)}/${m.unidad}` : null].filter(Boolean).join(' · ')}</td>
                       <td className="text-right">{!x.anulado && ['compra', 'ajuste', 'inicial'].includes(x.tipo) && puede('materiales', 'anular') && <button className="btn-secundario btn-chico" onClick={() => setAnular(x)}>Anular</button>}</td>
@@ -188,11 +191,13 @@ function FichaMaterial({ id, onCerrar, onEditar }: { id: number; onCerrar: () =>
 /** "Hoy hay X": el sistema agrega la diferencia contra lo que tenía (no pisa lo consumido). */
 function ConteoMaterial({ material, onCerrar }: { material: DetalleMaterial; onCerrar: () => void }) {
   const qc = useQueryClient();
-  const [d, setD] = useState({ fecha: hoy(), cantidad: '', motivo: '' });
+  const [d, setD] = useState({ fecha: hoy(), cantidad: '', motivo: '', lugar: '' });
   const n = d.cantidad.trim() === '' ? NaN : leerCant(d.cantidad);
-  const actual = material.stockMil ?? 0;
+  const lugares = useQuery({ queryKey: ['custodia-lugares'], queryFn: () => api.get<{ ubicacionProveedorId: number | null; nombre: string }[]>('/custodia/lugares') });
+  const lugarId = d.lugar === '' ? null : Number(d.lugar);
+  const actual = (material.ubicaciones ?? []).find((u) => u.ubicacionProveedorId === lugarId)?.cantidadMil ?? 0;
   const g = useMutation({
-    mutationFn: () => api.post(`/materiales/${material.id}/conteo`, { fecha: d.fecha, contadoMil: n, motivo: d.motivo || null }, true),
+    mutationFn: () => api.post(`/materiales/${material.id}/conteo`, { fecha: d.fecha, contadoMil: n, motivo: d.motivo || null, ubicacionProveedorId: lugarId }, true),
     onSuccess: () => { avisar('Conteo cargado'); inv(qc); onCerrar(); }, onError: avisarError,
   });
   return (
@@ -202,7 +207,8 @@ function ConteoMaterial({ material, onCerrar }: { material: DetalleMaterial; onC
           <Campo etiqueta="Fecha"><input className="entrada" type="date" value={d.fecha} onChange={(e) => setD({ ...d, fecha: e.target.value })} /></Campo>
           <Campo etiqueta={`Cuánto hay (${UNIDADES[material.unidad]})`}><input className="entrada" inputMode="decimal" autoFocus value={d.cantidad} onChange={(e) => setD({ ...d, cantidad: e.target.value })} /></Campo>
         </div>
-        <p className="text-sm text-carbon/70">El sistema tiene {cant(actual)} {material.unidad}.{n >= 0 && <> Se agrega un movimiento de <b>{n - actual > 0 ? '+' : ''}{cant(n - actual)} {material.unidad}</b> para que quede en {cant(n)}.</>}</p>
+        <Campo etiqueta="Dónde se contó"><select className="entrada" value={d.lugar} onChange={(e) => setD({ ...d, lugar: e.target.value })}>{lugares.data?.map((l) => <option key={l.ubicacionProveedorId ?? 'l'} value={l.ubicacionProveedorId ?? ''}>{l.nombre === 'Local' ? 'En el local' : `En poder de ${l.nombre}`}</option>)}</select></Campo>
+        <p className="text-sm text-carbon/70">El sistema tiene {cant(actual)} {material.unidad} ahí.{n >= 0 && <> Se agrega un movimiento de <b>{n - actual > 0 ? '+' : ''}{cant(n - actual)} {material.unidad}</b> para que quede en {cant(n)}.</>}</p>
         <Campo etiqueta="Notas (opcional)"><input className="entrada" value={d.motivo} onChange={(e) => setD({ ...d, motivo: e.target.value })} placeholder="Ej.: contado en el local" /></Campo>
         <div className="flex justify-end gap-2"><button type="button" className="btn-secundario" onClick={onCerrar}>Cancelar</button><button className="btn-primario" disabled={!(n >= 0) || g.isPending}>Guardar conteo</button></div>
       </form>
