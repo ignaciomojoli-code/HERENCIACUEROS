@@ -32,6 +32,7 @@ export async function rutasCostos(app: FastifyInstance, { base, requiere, conIde
     codigo: z.string(), nombre: z.string(), unidad: z.enum(['m', 'u', 'par', 'kg']), tipo: z.enum(['material', 'mano_obra']),
     costoCentavos: entero.min(0).nullable(), proveedorId: entero.nullable(), stockMinimoMil: opt(entero.min(0)), notas: opt(z.string()), activo: z.boolean().optional(),
     clasificacion: z.enum(['materia_prima', 'material_produccion', 'insumo', 'otro']).nullable().optional(),
+    porColor: z.boolean().optional(),
     motivo: z.string().optional(),
   });
   app.post('/materiales', async (req) => {
@@ -54,17 +55,17 @@ export async function rutasCostos(app: FastifyInstance, { base, requiere, conIde
   app.post('/materiales/:id/ingresos', async (req, reply) => {
     requiere(req, 'materiales', 'crear');
     if (!puede(req, 'costos')) throw new ErrorNegocio('Cargar una compra de material requiere ver costos', 403);
-    const d = z.object({ fecha, cantidadMil: entero.positive(), costoUnitarioCentavos: entero.min(0), proveedorId: opt(entero), comprobante: opt(z.string()), notas: opt(z.string()) }).parse(req.body);
+    const d = z.object({ fecha, colorId: opt(entero), cantidadMil: entero.positive(), costoUnitarioCentavos: entero.min(0), proveedorId: opt(entero), comprobante: opt(z.string()), notas: opt(z.string()) }).parse(req.body);
     return conIdempotencia(base, req, reply, (db) => co.ingresarMaterial(ctx(req, db), { ...d, materialId: idDe(req) }));
   });
   app.post('/materiales/:id/ajustes', async (req, reply) => {
     requiere(req, 'materiales', 'modificar');
-    const d = z.object({ fecha, cantidadMil: entero, motivo: z.string(), tipo: z.enum(['ajuste', 'inicial']).optional(), ubicacionProveedorId: entero.nullable().optional() }).parse(req.body);
+    const d = z.object({ fecha, colorId: opt(entero), cantidadMil: entero, motivo: z.string(), tipo: z.enum(['ajuste', 'inicial']).optional(), ubicacionProveedorId: entero.nullable().optional() }).parse(req.body);
     return conIdempotencia(base, req, reply, (db) => filtrarCostos(req, co.ajustarMaterial(ctx(req, db), { ...d, materialId: idDe(req) }), IMPORTES));
   });
   app.post('/materiales/:id/conteo', async (req, reply) => {
     requiere(req, 'materiales', 'modificar');
-    const d = z.object({ fecha, contadoMil: entero, motivo: z.string().nullable().optional(), ubicacionProveedorId: entero.nullable().optional() }).parse(req.body);
+    const d = z.object({ fecha, colorId: opt(entero), contadoMil: entero, motivo: z.string().nullable().optional(), ubicacionProveedorId: entero.nullable().optional() }).parse(req.body);
     return conIdempotencia(base, req, reply, (db) => co.contarMaterial(ctx(req, db), { ...d, materialId: idDe(req) }));
   });
   app.post('/materiales/movimientos/:id/anular', async (req) => {

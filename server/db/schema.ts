@@ -374,6 +374,7 @@ export const compraMateriales = sqliteTable('compra_materiales', {
   id: id(),
   compraId: integer('compra_id').notNull().references(() => compras.id),
   materialId: integer('material_id').notNull().references(() => materiales.id),
+  colorId: integer('color_id').references(() => colores.id),
   cantidadMil: integer('cantidad_mil').notNull(),
   costoUnitarioCentavos: integer('costo_unitario_centavos').notNull(),
   notas: text('notas'),
@@ -385,6 +386,7 @@ export const recepcionMateriales = sqliteTable('recepcion_materiales', {
   recepcionId: integer('recepcion_id').notNull().references(() => recepciones.id),
   compraMaterialId: integer('compra_material_id').notNull().references(() => compraMateriales.id),
   materialId: integer('material_id').notNull().references(() => materiales.id),
+  colorId: integer('color_id').references(() => colores.id),
   cantidadMil: integer('cantidad_mil').notNull(),
   costoUnitarioCentavos: integer('costo_unitario_centavos').notNull(),
   movimientoId: integer('movimiento_id'),
@@ -703,6 +705,8 @@ export const materiales = sqliteTable('materiales', {
   costoCentavos: integer('costo_centavos'),
   proveedorId: integer('proveedor_id').references(() => proveedores.id),
   stockMinimoMil: integer('stock_minimo_mil'),
+  /** Se controla por color (ej. el cuero): el stock, las compras y las entregas van por color, y la receta toma el color de la campera. */
+  porColor: integer('por_color', { mode: 'boolean' }).notNull().default(false),
   notas: text('notas'),
   activo: activo(),
   esDemo: esDemo(),
@@ -735,6 +739,8 @@ export const movimientosMaterial = sqliteTable('movimientos_material', {
   proveedorId: integer('proveedor_id').references(() => proveedores.id),
   /** Dónde está el material: null = en el local; si no, en poder de ese proveedor o taller (ej. Laura). */
   ubicacionProveedorId: integer('ubicacion_proveedor_id').references(() => proveedores.id),
+  /** Color, solo en materiales que se controlan por color (null = sin color). */
+  colorId: integer('color_id').references(() => colores.id),
   comprobante: text('comprobante'),
   refTipo: text('ref_tipo'),
   refId: integer('ref_id'),
@@ -787,6 +793,7 @@ export const recetaItems = sqliteTable('receta_items', {
 export const necesidadesMaterial = sqliteTable('necesidades_material', {
   id: id(),
   materialId: integer('material_id').notNull().references(() => materiales.id),
+  colorId: integer('color_id').references(() => colores.id),
   tipo: text('tipo', { enum: ['posponer', 'descartar', 'proveedor'] }).notNull(),
   cantidadMil: integer('cantidad_mil'),
   hasta: text('hasta'),
@@ -798,3 +805,22 @@ export const necesidadesMaterial = sqliteTable('necesidades_material', {
   creadoEn: creadoEn(),
   actualizadoEn: actualizadoEn(),
 }, (t) => [index('necesidades_material_idx').on(t.materialId, t.estado)]);
+
+/**
+ * Reserva de materiales del local para un pedido de confección (orden de producción): quedan apartados y no se
+ * ofrecen a otros pedidos. No mueve stock. La reserva vigente es lo reservado menos lo ya entregado al taller para ese
+ * pedido, y vale 0 si el pedido se cierra o se anula: así nada se descuenta dos veces y lo cancelado vuelve solo.
+ * Cambiar una reserva anula la anterior y agrega una nueva (queda el historial).
+ */
+export const reservasMaterial = sqliteTable('reservas_material', {
+  id: id(),
+  compraId: integer('compra_id').notNull().references(() => compras.id),
+  materialId: integer('material_id').notNull().references(() => materiales.id),
+  colorId: integer('color_id').references(() => colores.id),
+  cantidadMil: integer('cantidad_mil').notNull(),
+  estado: text('estado', { enum: ['activa', 'anulada'] }).notNull().default('activa'),
+  motivo: text('motivo'),
+  usuarioId: integer('usuario_id').references(() => usuarios.id),
+  creadoEn: creadoEn(),
+  actualizadoEn: actualizadoEn(),
+}, (t) => [index('reservas_material_compra_idx').on(t.compraId, t.estado)]);

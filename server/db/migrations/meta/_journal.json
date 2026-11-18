@@ -85,6 +85,13 @@
       "when": 1794927863398,
       "tag": "0011_gastos_personales_importacion",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1795020701254,
+      "tag": "0012_abastecimiento",
+      "breakpoints": true
     }
   ]
 }

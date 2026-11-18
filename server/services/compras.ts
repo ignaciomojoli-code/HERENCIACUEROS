@@ -4,7 +4,7 @@
  * porque ahí se paga la mano de obra y el costo del producto se arma con materiales + confección.
  */
 import { devolverDePedido } from './reposicion.js';
-import { consumirPorProduccion, costoDeCantidad, entradaMaterial, revertirEntradaMaterial, revertirProduccion } from './costos.js';
+import { claveMaterial, colorDeMovimiento, consumirPorProduccion, costoDeCantidad, entradaMaterial, revertirEntradaMaterial, revertirProduccion } from './costos.js';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { colores, compraItems, compraMateriales, compras, historialCostos, materiales, modelos, movimientosStock, necesidadesMaterial, proveedores, recepciones, recepcionItems, recepcionMateriales, talles, variantes } from '../db/schema.js';
 import type { DB } from '../db/index.js';
@@ -17,7 +17,7 @@ import { estadoPedido, imputacionesDePagos, imputadoPorCompra, listarAdjuntos, v
 import { pagosProveedor } from '../db/schema.js';
 
 export interface ItemCompra { varianteId: number; cantidad: number; costoUnitarioCentavos: number; notas?: string | null }
-export interface ItemMaterial { materialId: number; cantidadMil: number; costoUnitarioCentavos: number; notas?: string | null }
+export interface ItemMaterial { materialId: number; colorId?: number | null; cantidadMil: number; costoUnitarioCentavos: number; notas?: string | null }
 export type TipoCompra = 'reventa' | 'confeccion' | 'materiales';
 export interface DatosCompra extends DatosComprobante { proveedorId: number; tipo: TipoCompra; fecha: string; fechaEsperada?: string | null; notas?: string | null; items: ItemCompra[]; materiales?: ItemMaterial[] }
 
@@ -31,9 +31,12 @@ function validarLineas(db: DB, d: DatosCompra) {
   const ms = d.materiales ?? [];
   if (!ms.length) throw new ErrorNegocio('Agregá al menos un material');
   const ids = [...new Set(ms.map((i) => i.materialId))];
-  if (ids.length !== ms.length) throw new ErrorNegocio('Hay un material repetido en el pedido: juntá las cantidades en una sola línea');
   const existentes = db.select().from(materiales).where(inArray(materiales.id, ids)).all();
   if (existentes.length !== ids.length) throw new ErrorNegocio('Hay materiales que no existen');
+  // Los materiales que van por color llevan el color en cada línea; los demás, nunca.
+  for (const i of ms) i.colorId = colorDeMovimiento(db, existentes.find((m) => m.id === i.materialId)!, i.colorId);
+  const claves = ms.map((i) => claveMaterial(i.materialId, i.colorId ?? null));
+  if (new Set(claves).size !== claves.length) throw new ErrorNegocio('Hay un material repetido en el pedido (mismo color): juntá las cantidades en una sola línea');
   if (existentes.some((m) => m.tipo === 'mano_obra')) throw new ErrorNegocio('La mano de obra no se pide como material: va en el pedido de confección al taller');
   for (const i of ms) {
     if (!Number.isInteger(i.cantidadMil) || i.cantidadMil <= 0) throw new ErrorNegocio('Las cantidades tienen que ser mayores a cero');
@@ -43,7 +46,7 @@ function validarLineas(db: DB, d: DatosCompra) {
 
 function insertarLineas(ctx: Ctx, compraId: number, d: DatosCompra) {
   if (d.items.length) ctx.db.insert(compraItems).values(d.items.map((i) => ({ compraId, varianteId: i.varianteId, cantidad: i.cantidad, costoUnitarioCentavos: i.costoUnitarioCentavos, notas: i.notas ?? null }))).run();
-  if (d.materiales?.length) ctx.db.insert(compraMateriales).values(d.materiales.map((i) => ({ compraId, materialId: i.materialId, cantidadMil: i.cantidadMil, costoUnitarioCentavos: i.costoUnitarioCentavos, notas: i.notas ?? null }))).run();
+  if (d.materiales?.length) ctx.db.insert(compraMateriales).values(d.materiales.map((i) => ({ compraId, materialId: i.materialId, colorId: i.colorId ?? null, cantidadMil: i.cantidadMil, costoUnitarioCentavos: i.costoUnitarioCentavos, notas: i.notas ?? null }))).run();
 }
 
 function validarItems(db: DB, items: ItemCompra[]) {
@@ -175,9 +178,9 @@ function recibirMateriales(ctx: Ctx, c: typeof compras.$inferSelect, d: DatosRec
     const pendiente = lp.cantidadMil - (recibido.get(lp.id) ?? 0);
     if (l.cantidadMil > pendiente) throw new ErrorNegocio(`Se quieren recibir ${l.cantidadMil / 1000} y quedan ${pendiente / 1000} pendientes de esa línea. Si vino de más, agregalo como otro pedido o con un ingreso en Materiales.`);
     const costo = l.costoUnitarioCentavos ?? lp.costoUnitarioCentavos;
-    const e = entradaMaterial(ctx, { materialId: lp.materialId, fecha: d.fecha, cantidadMil: l.cantidadMil, costoUnitarioCentavos: costo, comprobante: d.comprobante ?? null,
+    const e = entradaMaterial(ctx, { materialId: lp.materialId, colorId: lp.colorId, fecha: d.fecha, cantidadMil: l.cantidadMil, costoUnitarioCentavos: costo, comprobante: d.comprobante ?? null,
       motivo: `Recepción R-${rec.numero} · pedido P-${c.numero}${prov ? ' · ' + prov.nombre : ''}`, refTipo: 'recepcion', refId: rec.id });
-    ctx.db.insert(recepcionMateriales).values({ recepcionId: rec.id, compraMaterialId: lp.id, materialId: lp.materialId, cantidadMil: l.cantidadMil, costoUnitarioCentavos: costo, movimientoId: e.movimientoId }).run();
+    ctx.db.insert(recepcionMateriales).values({ recepcionId: rec.id, compraMaterialId: lp.id, materialId: lp.materialId, colorId: lp.colorId, cantidadMil: l.cantidadMil, costoUnitarioCentavos: costo, movimientoId: e.movimientoId }).run();
     if (e.costoNuevoCentavos !== e.costoAnteriorCentavos) cambiosCosto.push({ material: e.material, antes: e.costoAnteriorCentavos, despues: e.costoNuevoCentavos });
   }
   const quedan = lineasPedido.reduce((s, x) => s + x.cantidadMil - (recibido.get(x.id) ?? 0), 0) - lineas.reduce((s, l) => s + l.cantidadMil, 0);
@@ -293,12 +296,12 @@ export function obtenerCompra(db: DB, id: number) {
     .where(eq(compraItems.compraId, id)).orderBy(compraItems.id).all()
     .map((r) => ({ ...r.i, sku: r.sku, modelo: r.modelo, modeloId: r.modeloId, color: r.color, talle: r.talle, recibido: recibido.get(r.i.id) ?? 0, pendiente: r.i.cantidad - (recibido.get(r.i.id) ?? 0) }));
   const recibidoMat = recibidoPorMaterial(db, id);
-  const lineasMat = db.select({ l: compraMateriales, codigo: materiales.codigo, material: materiales.nombre, unidad: materiales.unidad }).from(compraMateriales)
-    .innerJoin(materiales, eq(materiales.id, compraMateriales.materialId)).where(eq(compraMateriales.compraId, id)).orderBy(compraMateriales.id).all()
-    .map((r) => ({ ...r.l, codigo: r.codigo, material: r.material, unidad: r.unidad, recibidoMil: recibidoMat.get(r.l.id) ?? 0, pendienteMil: r.l.cantidadMil - (recibidoMat.get(r.l.id) ?? 0) }));
+  const lineasMat = db.select({ l: compraMateriales, codigo: materiales.codigo, material: materiales.nombre, unidad: materiales.unidad, color: colores.nombre }).from(compraMateriales)
+    .innerJoin(materiales, eq(materiales.id, compraMateriales.materialId)).leftJoin(colores, eq(colores.id, compraMateriales.colorId)).where(eq(compraMateriales.compraId, id)).orderBy(compraMateriales.id).all()
+    .map((r) => ({ ...r.l, codigo: r.codigo, material: r.material, color: r.color, unidad: r.unidad, recibidoMil: recibidoMat.get(r.l.id) ?? 0, pendienteMil: r.l.cantidadMil - (recibidoMat.get(r.l.id) ?? 0) }));
   const recs = db.select().from(recepciones).where(eq(recepciones.compraId, id)).orderBy(desc(recepciones.id)).all();
   const recItems = recs.length ? db.select({ r: recepcionItems, sku: variantes.sku }).from(recepcionItems).innerJoin(variantes, eq(variantes.id, recepcionItems.varianteId)).where(inArray(recepcionItems.recepcionId, recs.map((r) => r.id))).all() : [];
-  const recMats = recs.length ? db.select({ r: recepcionMateriales, material: materiales.nombre, unidad: materiales.unidad }).from(recepcionMateriales).innerJoin(materiales, eq(materiales.id, recepcionMateriales.materialId)).where(inArray(recepcionMateriales.recepcionId, recs.map((r) => r.id))).all() : [];
+  const recMats = recs.length ? db.select({ r: recepcionMateriales, material: materiales.nombre, unidad: materiales.unidad, color: colores.nombre }).from(recepcionMateriales).innerJoin(materiales, eq(materiales.id, recepcionMateriales.materialId)).leftJoin(colores, eq(colores.id, recepcionMateriales.colorId)).where(inArray(recepcionMateriales.recepcionId, recs.map((r) => r.id))).all() : [];
   const activa = (recId: number) => recs.find((r) => r.id === recId)?.estado === 'activa';
   const recibidoCentavos = recItems.filter((x) => activa(x.r.recepcionId)).reduce((s, x) => s + x.r.cantidad * x.r.costoUnitarioCentavos, 0)
     + recMats.filter((x) => activa(x.r.recepcionId)).reduce((s, x) => s + costoDeCantidad(x.r.costoUnitarioCentavos, x.r.cantidadMil), 0);
@@ -320,7 +323,7 @@ export function obtenerCompra(db: DB, id: number) {
     adjuntos: listarAdjuntos(db, 'compra', id),
     recepciones: recs.map((r) => ({
       ...r, adjuntos: listarAdjuntos(db, 'recepcion', r.id), items: recItems.filter((x) => x.r.recepcionId === r.id).map((x) => ({ ...x.r, sku: x.sku })),
-      materiales: recMats.filter((x) => x.r.recepcionId === r.id).map((x) => ({ ...x.r, material: x.material, unidad: x.unidad, importeCentavos: costoDeCantidad(x.r.costoUnitarioCentavos, x.r.cantidadMil) })),
+      materiales: recMats.filter((x) => x.r.recepcionId === r.id).map((x) => ({ ...x.r, material: x.material, color: x.color, unidad: x.unidad, importeCentavos: costoDeCantidad(x.r.costoUnitarioCentavos, x.r.cantidadMil) })),
     })),
   };
 }

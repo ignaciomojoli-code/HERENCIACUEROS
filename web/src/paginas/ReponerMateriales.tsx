@@ -7,12 +7,12 @@ import { useSesion } from '../sesion';
 import { Aviso, Campo, Cargando, Encabezado, ErrorCarga, Modal, Vacio, avisar, avisarError } from '../componentes/ui';
 import { Importe } from '../componentes/Importe';
 import { fecha as fmtFecha, pesos } from '../formato';
-import { cant, leerCant, type Unidad } from '../costos';
+import { cant, leerCant, type Unidad, conColor } from '../costos';
 
 interface Origen { texto: string; unidades: number; cantidadMil: number }
 interface Decision { id: number; tipo: 'posponer' | 'descartar' | 'proveedor'; cantidadMil: number | null; hasta: string | null; proveedor: string | null; motivo: string | null; creadoEn: string }
 interface Fila {
-  materialId: number; codigo: string; nombre: string; unidad: Unidad; costoCentavos?: number | null; proveedorId: number | null; proveedor: string | null; proveedorHabitual: string | null; proveedorCambiado: boolean;
+  clave: string; materialId: number; colorId: number | null; color: string | null; codigo: string; nombre: string; unidad: Unidad; costoCentavos?: number | null; proveedorId: number | null; proveedor: string | null; proveedorHabitual: string | null; proveedorCambiado: boolean;
   stockMil: number; sinConteo: boolean; minimoMil: number; ventasMil: number; comprometidoMil: number; pedidoMil: number; borradorMil: number; necesidadMil: number; faltanteMil: number;
   descartadoMil: number; aPedirMil: number; pospuestoHasta: string | null; valorCentavos?: number | null;
   detalle: { ventas: Origen[]; taller: Origen[]; pedidos: { compraId: number; numero: number; estado: string; proveedor: string; cantidadMil: number }[]; decisiones: Decision[] };
@@ -49,8 +49,8 @@ export function PaginaReponerMateriales() {
           </div>
           <table className="tabla"><thead><tr><th>Material</th><th className="num">Consumido</th><th className="num hidden sm:table-cell">Ventas y taller piden</th><th className="num hidden sm:table-cell">Ya pedido</th><th /></tr></thead>
             <tbody>{r.sinConteo.map((m) => (
-              <tr key={m.materialId}>
-                <td>{m.nombre}<div className="text-xs text-carbon/50">{m.proveedor ?? 'sin proveedor'}</div></td>
+              <tr key={m.clave}>
+                <td>{conColor(m.nombre, m.color)}<div className="text-xs text-carbon/50">{m.proveedor ?? 'sin proveedor'}</div></td>
                 <td className="num">{m.stockMil < 0 ? c(-m.stockMil, m.unidad) : '—'}</td>
                 <td className="num hidden sm:table-cell">{c(m.ventasMil + m.comprometidoMil, m.unidad)}</td>
                 <td className="num hidden sm:table-cell">{c(m.pedidoMil + m.borradorMil, m.unidad)}</td>
@@ -65,7 +65,7 @@ export function PaginaReponerMateriales() {
           <div className="border-b border-arena/50 px-4 py-3"><h2 className="text-lg font-bold">Pospuestos</h2><div className="text-sm text-carbon/60">Vuelven a aparecer solos en la fecha elegida.</div></div>
           <table className="tabla"><thead><tr><th>Material</th><th className="num">Falta</th><th>Hasta</th><th /></tr></thead>
             <tbody>{r.pospuestos.map((m) => (
-              <tr key={m.materialId}><td>{m.nombre}</td><td className="num">{c(m.faltanteMil, m.unidad)}</td><td>{fmtFecha(m.pospuestoHasta + 'T12:00')}</td><td className="text-right"><button className="btn-secundario btn-chico" onClick={() => setDetalle(m)}>Ver</button></td></tr>
+              <tr key={m.clave}><td>{conColor(m.nombre, m.color)}</td><td className="num">{c(m.faltanteMil, m.unidad)}</td><td>{fmtFecha(m.pospuestoHasta + 'T12:00')}</td><td className="text-right"><button className="btn-secundario btn-chico" onClick={() => setDetalle(m)}>Ver</button></td></tr>
             ))}</tbody>
           </table>
         </section>
@@ -77,8 +77,8 @@ export function PaginaReponerMateriales() {
             <table className="tabla">
               <thead><tr><th>Material</th><th className="num">Stock</th><th className="num">Ventas sin encargar</th><th className="num">En el taller</th><th className="num">Mínimo</th><th className="num">Ya pedido</th><th className="num">Falta</th><th className="num">A pedir</th></tr></thead>
               <tbody>{enJuego.map((m) => (
-                <tr key={m.materialId} className="cursor-pointer" onClick={() => setDetalle(m)}>
-                  <td>{m.nombre}{m.sinConteo && <span className="ml-1 text-xs text-bordo">sin conteo</span>}</td>
+                <tr key={m.clave} className="cursor-pointer" onClick={() => setDetalle(m)}>
+                  <td>{conColor(m.nombre, m.color)}{m.sinConteo && <span className="ml-1 text-xs text-bordo">sin conteo</span>}</td>
                   <td className={`num ${m.stockMil < 0 ? 'text-bordo' : ''}`}>{cant(m.stockMil)}</td><td className="num">{cant(m.ventasMil)}</td><td className="num">{cant(m.comprometidoMil)}</td>
                   <td className="num">{cant(m.minimoMil)}</td><td className="num">{cant(m.pedidoMil + m.borradorMil)}</td><td className="num">{cant(m.faltanteMil)}</td><td className="num font-medium">{cant(m.aPedirMil)} {m.unidad}</td>
                 </tr>
@@ -87,7 +87,7 @@ export function PaginaReponerMateriales() {
           </div>
         )}
       </div>
-      {detalle && <ModalDetalle f={r.materiales.find((m) => m.materialId === detalle.materialId) ?? detalle} onCerrar={() => setDetalle(null)} onCambio={inv} />}
+      {detalle && <ModalDetalle f={r.materiales.find((m) => m.clave === detalle.clave) ?? detalle} onCerrar={() => setDetalle(null)} onCambio={inv} />}
     </>
   );
 }
@@ -121,8 +121,8 @@ function TarjetaProveedor({ g, onDetalle, onCambio }: { g: Grupo; onDetalle: (f:
         <table className="tabla">
           <thead><tr><th>Material</th><th className="num">Stock</th><th className="num hidden sm:table-cell">Se necesita</th><th className="num hidden sm:table-cell">Ya pedido</th><th className="num">A pedir</th><th /></tr></thead>
           <tbody>{g.items.map((m) => (
-            <tr key={m.materialId}>
-              <td>{m.nombre}{m.proveedorCambiado && <div className="text-xs text-carbon/50">habitual: {m.proveedorHabitual ?? '—'}</div>}{m.descartadoMil > 0 && <div className="text-xs text-carbon/50">descartado {c(m.descartadoMil, m.unidad)}</div>}</td>
+            <tr key={m.clave}>
+              <td>{conColor(m.nombre, m.color)}{m.proveedorCambiado && <div className="text-xs text-carbon/50">habitual: {m.proveedorHabitual ?? '—'}</div>}{m.descartadoMil > 0 && <div className="text-xs text-carbon/50">descartado {c(m.descartadoMil, m.unidad)}</div>}</td>
               <td className={`num ${m.stockMil < 0 ? 'text-bordo' : ''}`}>{cant(m.stockMil)}{m.sinConteo && <div className="text-xs text-bordo">sin conteo</div>}</td>
               <td className="num hidden sm:table-cell">{cant(m.necesidadMil)}</td>
               <td className="num hidden sm:table-cell">{cant(m.pedidoMil + m.borradorMil)}</td>
@@ -143,7 +143,7 @@ function ModalArmar({ g, onCerrar, onListo }: { g: Grupo; onCerrar: () => void; 
   const malas = elegidas.filter((f) => !(leerCant(f.texto) > 0) || f.costo == null);
   const total = elegidas.reduce((s, f) => s + (leerCant(f.texto) > 0 ? Math.round((leerCant(f.texto) * (f.costo ?? 0)) / 1000) : 0), 0);
   const mut = useMutation({
-    mutationFn: () => api.post<{ compraId: number; numero: number }>('/reposicion-materiales/armar', { proveedorId: g.proveedorId, lineas: elegidas.map((f) => ({ materialId: f.m.materialId, cantidadMil: leerCant(f.texto), costoUnitarioCentavos: f.costo })) }, true),
+    mutationFn: () => api.post<{ compraId: number; numero: number }>('/reposicion-materiales/armar', { proveedorId: g.proveedorId, lineas: elegidas.map((f) => ({ materialId: f.m.materialId, colorId: f.m.colorId, cantidadMil: leerCant(f.texto), costoUnitarioCentavos: f.costo })) }, true),
     onSuccess: (r) => { avisar(`Pedido P-${r.numero} armado en borrador: revisalo y confirmalo`); onListo(r.compraId); }, onError: avisarError,
   });
   return (
@@ -154,9 +154,9 @@ function ModalArmar({ g, onCerrar, onListo }: { g: Grupo; onCerrar: () => void; 
           <table className="tabla">
             <thead><tr><th /><th>Material</th><th className="num">Falta</th><th className="num w-32">Pedir</th><th className="num w-36">Costo por unidad</th></tr></thead>
             <tbody>{filas.map((f, i) => (
-              <tr key={f.m.materialId}>
+              <tr key={f.m.clave}>
                 <td><input type="checkbox" checked={f.usar} onChange={(e) => setFilas(filas.map((x, j) => (j === i ? { ...x, usar: e.target.checked } : x)))} aria-label={`Incluir ${f.m.nombre}`} /></td>
-                <td>{f.m.nombre}</td>
+                <td>{conColor(f.m.nombre, f.m.color)}</td>
                 <td className="num">{c(f.m.aPedirMil, f.m.unidad)}</td>
                 <td><div className="flex items-center gap-1"><input className={`entrada py-1 text-right ${f.usar && !(leerCant(f.texto) > 0) ? 'border-bordo' : ''}`} inputMode="decimal" value={f.texto} disabled={!f.usar} onChange={(e) => setFilas(filas.map((x, j) => (j === i ? { ...x, texto: e.target.value } : x)))} /><span className="text-xs text-carbon/55">{f.m.unidad}</span></div></td>
                 <td><Importe valor={f.costo} onCambio={(v) => setFilas(filas.map((x, j) => (j === i ? { ...x, costo: v } : x)))} /></td>
@@ -183,7 +183,7 @@ function ModalDetalle({ f, onCerrar, onCambio }: { f: Fila; onCerrar: () => void
   const deshacer = useMutation({ mutationFn: (id: number) => api.post(`/reposicion-materiales/decisiones/${id}/anular`, {}), onSuccess: () => { avisar('Listo'); onCambio(); }, onError: avisarError });
   const linea = (t: string, mil: number, signo = '') => <div className="flex justify-between gap-4"><span className="text-carbon/70">{t}</span><span>{signo}{c(mil, f.unidad)}</span></div>;
   return (
-    <Modal titulo={f.nombre} onCerrar={onCerrar} ancho="max-w-2xl">
+    <Modal titulo={conColor(f.nombre, f.color)} onCerrar={onCerrar} ancho="max-w-2xl">
       <div className="space-y-4 text-sm">
         <div className="space-y-1">
           {linea('Ventas todavía no encargadas al taller', f.ventasMil)}
@@ -237,8 +237,8 @@ function FormDecision({ f, accion, onCerrar, onListo }: { f: Fila; accion: 'posp
   const [prov, setProv] = useState(f.proveedorId ?? 0);
   const [motivo, setMotivo] = useState('');
   const mut = useMutation({
-    mutationFn: () => api.post(`/reposicion-materiales/${accion}`, accion === 'posponer' ? { materialId: f.materialId, hasta, motivo: motivo || null }
-      : accion === 'descartar' ? { materialId: f.materialId, cantidadMil: leerCant(texto), motivo } : { materialId: f.materialId, proveedorId: prov, motivo: motivo || null }),
+    mutationFn: () => api.post(`/reposicion-materiales/${accion}`, accion === 'posponer' ? { materialId: f.materialId, colorId: f.colorId, hasta, motivo: motivo || null }
+      : accion === 'descartar' ? { materialId: f.materialId, colorId: f.colorId, cantidadMil: leerCant(texto), motivo } : { materialId: f.materialId, colorId: f.colorId, proveedorId: prov, motivo: motivo || null }),
     onSuccess: () => { avisar('Listo'); onListo(); }, onError: avisarError,
   });
   const valido = accion === 'posponer' ? !!hasta : accion === 'descartar' ? leerCant(texto) > 0 && !!motivo.trim() : prov > 0;

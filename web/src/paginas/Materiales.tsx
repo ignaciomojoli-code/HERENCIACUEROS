@@ -5,6 +5,7 @@ import { api } from '../api';
 import { useSesion } from '../sesion';
 import type { Aux } from '../tipos';
 import { Aviso, Campo, Cargando, Confirmar, Encabezado, ErrorCarga, Estado, Modal, Pendiente, Vacio, avisar, avisarError } from '../componentes/ui';
+import { SelectorColor } from '../componentes/SelectorColor';
 import { Importe } from '../componentes/Importe';
 import { fecha as fmtFecha, pesos } from '../formato';
 import { hoy } from '../plata';
@@ -53,9 +54,9 @@ export function PaginaMateriales() {
             <tbody>{filas.map((m) => (
               <tr key={m.id} className="cursor-pointer hover:bg-arena/20" onClick={() => setVerId(m.id)}>
                 <td className="font-mono text-xs">{m.codigo}</td>
-                <td className="font-medium">{m.nombre}{m.tipo === 'mano_obra' && <span className="pildora ml-2 bg-arena/50">Mano de obra</span>}</td>
+                <td className="font-medium">{m.nombre}{m.tipo === 'mano_obra' && <span className="pildora ml-2 bg-arena/50">Mano de obra</span>}{m.porColor && <span className="pildora ml-2 bg-arena/50">Por color</span>}</td>
                 <td className="hidden lg:table-cell">{m.tipo === 'mano_obra' ? '—' : m.clasificacion ? CLASIF_MATERIAL[m.clasificacion] : <Pendiente texto="Sin clasificar" />}</td>
-                <td className={`num ${bajoMinimo(m) ? 'font-semibold text-bordo' : ''}`}>{m.stockMil === null ? '—' : `${cant(m.stockMil)} ${m.unidad}`}</td>
+                <td className={`num ${bajoMinimo(m) ? 'font-semibold text-bordo' : ''}`}>{m.stockMil === null ? '—' : `${cant(m.stockMil)} ${m.unidad}`}{m.porColor && !!m.stockColores?.length && <div className="text-xs font-normal text-carbon/55">{m.stockColores.map((c) => `${c.color} ${cant(c.cantidadMil)}`).join(' · ')}</div>}</td>
                 {verCostos && <td className="num">{m.costoCentavos == null ? <Pendiente /> : <>{pesos(m.costoCentavos)}<span className="text-xs text-carbon/45"> /{m.unidad}</span></>}</td>}
                 <td className="hidden md:table-cell">{m.proveedor ?? '—'}</td>
                 <td className="hidden sm:table-cell num">{m.modelosQueLoUsan || '—'}</td>
@@ -84,7 +85,7 @@ function EditarMaterial({ material, onCerrar }: { material: Partial<Material>; o
     mutationFn: () => {
       const min = minimo.trim() ? leerCant(minimo) : null;
       if (Number.isNaN(min)) throw new Error('El stock mínimo no es un número');
-      const cuerpo = { codigo: m.codigo, nombre: m.nombre, unidad: m.unidad, tipo: m.tipo, proveedorId: m.proveedorId ?? null, stockMinimoMil: min, notas: m.notas ?? null, activo: m.activo ?? true, clasificacion: m.tipo === 'mano_obra' ? null : m.clasificacion ?? null,
+      const cuerpo = { codigo: m.codigo, nombre: m.nombre, unidad: m.unidad, tipo: m.tipo, proveedorId: m.proveedorId ?? null, stockMinimoMil: min, notas: m.notas ?? null, activo: m.activo ?? true, clasificacion: m.tipo === 'mano_obra' ? null : m.clasificacion ?? null, porColor: m.tipo === 'material' && !!m.porColor,
         ...(editaCosto ? { costoCentavos: m.costoCentavos ?? null } : m.id ? {} : { costoCentavos: null }), motivo: motivo || undefined };
       return m.id ? api.put(`/materiales/${m.id}`, cuerpo) : api.post('/materiales', cuerpo);
     },
@@ -107,6 +108,7 @@ function EditarMaterial({ material, onCerrar }: { material: Partial<Material>; o
         </div>
         <Campo etiqueta="Notas"><input className="entrada" value={m.notas ?? ''} onChange={(e) => setM({ ...m, notas: e.target.value })} /></Campo>
         {cambiaCosto && <Campo etiqueta="Motivo del cambio de costo"><input className="entrada" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ej: aumento del proveedor" /></Campo>}
+        {m.tipo === 'material' && <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={!!m.porColor} onChange={(e) => setM({ ...m, porColor: e.target.checked })} /><span>Se controla por color <span className="block text-xs text-carbon/55">Como el cuero: el stock, las compras y las entregas van por color, y cada campera usa el de su color.</span></span></label>}
         {m.id && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!m.activo} onChange={(e) => setM({ ...m, activo: e.target.checked })} />Activo</label>}
         {cambiaCosto && <p className="text-xs text-carbon/55">Cambiar el costo no cambia solo el costo de las prendas: lo aplicás desde Costeo, viendo antes cómo queda.</p>}
         <div className="flex justify-end gap-2"><button type="button" className="btn-secundario" onClick={onCerrar}>Cancelar</button><button className="btn-primario" disabled={g.isPending}>Guardar</button></div>
@@ -137,6 +139,11 @@ function FichaMaterial({ id, onCerrar, onEditar }: { id: number; onCerrar: () =>
             {m.costoCentavos !== undefined && <div><div className="etiqueta">Costo por {m.unidad}</div><div className="text-xl font-bold">{m.costoCentavos === null ? <Pendiente /> : pesos(m.costoCentavos)}</div></div>}
             <div><div className="etiqueta">Proveedor</div><div>{m.proveedor ?? '—'}</div></div>
           </div>
+          {m.porColor && !!m.stockColores?.length && (
+            <div><div className="etiqueta mb-1">Por color</div>
+              <div className="flex flex-wrap gap-1.5 text-sm">{m.stockColores.map((c) => <span key={`${c.colorId}-${c.ubicacionProveedorId}`} className={`pildora ${c.cantidadMil < 0 ? 'bg-bordo/10 text-bordo' : 'bg-arena/40'}`}>{c.color}{c.ubicacionProveedorId !== null ? ` (${c.ubicacion})` : ''}: {cant(c.cantidadMil)} {m.unidad}</span>)}</div>
+            </div>
+          )}
           {m.ubicaciones && m.ubicaciones.length > 1 && (
             <div className="flex flex-wrap gap-1.5 text-sm">{m.ubicaciones.map((u) => <span key={u.ubicacionProveedorId ?? 'l'} className="pildora bg-arena/40">{u.ubicacion}: {cant(u.cantidadMil)} {m.unidad}</span>)}</div>
           )}
@@ -159,7 +166,7 @@ function FichaMaterial({ id, onCerrar, onEditar }: { id: number; onCerrar: () =>
                   <thead><tr><th>Fecha</th><th>Tipo</th><th className="num">Cantidad</th><th className="num">Saldo</th><th className="hidden sm:table-cell">Detalle</th><th /></tr></thead>
                   <tbody>{m.movimientos.map((x) => (
                     <tr key={x.id} className={x.anulado ? 'text-carbon/40 line-through' : ''}>
-                      <td>{fmtFecha(x.fecha + 'T12:00')}</td><td>{TIPOS_MOV[x.tipo]}{x.ubicacion && x.ubicacion !== 'Local' && <div className="text-xs text-carbon/55">{x.ubicacion}</div>}</td>
+                      <td>{fmtFecha(x.fecha + 'T12:00')}</td><td>{TIPOS_MOV[x.tipo]}{x.ubicacion && x.ubicacion !== 'Local' && <div className="text-xs text-carbon/55">{x.ubicacion}</div>}{m.porColor && <div className="text-xs text-carbon/55">{x.color ?? 'Sin color'}</div>}</td>
                       <td className={`num ${x.cantidadMil < 0 ? 'text-bordo' : ''}`}>{x.cantidadMil > 0 ? '+' : ''}{cant(x.cantidadMil)}</td><td className="num">{cant(x.saldoMil)}</td>
                       <td className="hidden sm:table-cell text-xs">{[x.proveedor, x.comprobante, x.motivo, x.costoUnitarioCentavos != null && x.tipo === 'compra' ? `${pesos(x.costoUnitarioCentavos)}/${m.unidad}` : null].filter(Boolean).join(' · ')}</td>
                       <td className="text-right">{!x.anulado && ['compra', 'ajuste', 'inicial'].includes(x.tipo) && puede('materiales', 'anular') && <button className="btn-secundario btn-chico" onClick={() => setAnular(x)}>Anular</button>}</td>
@@ -192,17 +199,22 @@ function FichaMaterial({ id, onCerrar, onEditar }: { id: number; onCerrar: () =>
 function ConteoMaterial({ material, onCerrar }: { material: DetalleMaterial; onCerrar: () => void }) {
   const qc = useQueryClient();
   const [d, setD] = useState({ fecha: hoy(), cantidad: '', motivo: '', lugar: '' });
+  const [color, setColor] = useState<number | null | undefined>(undefined);
+  const falta = material.porColor && color === undefined;
   const n = d.cantidad.trim() === '' ? NaN : leerCant(d.cantidad);
   const lugares = useQuery({ queryKey: ['custodia-lugares'], queryFn: () => api.get<{ ubicacionProveedorId: number | null; nombre: string }[]>('/custodia/lugares') });
   const lugarId = d.lugar === '' ? null : Number(d.lugar);
-  const actual = (material.ubicaciones ?? []).find((u) => u.ubicacionProveedorId === lugarId)?.cantidadMil ?? 0;
+  const actual = material.porColor
+    ? (material.stockColores ?? []).find((u) => u.ubicacionProveedorId === lugarId && u.colorId === (color ?? null))?.cantidadMil ?? 0
+    : (material.ubicaciones ?? []).find((u) => u.ubicacionProveedorId === lugarId)?.cantidadMil ?? 0;
   const g = useMutation({
-    mutationFn: () => api.post(`/materiales/${material.id}/conteo`, { fecha: d.fecha, contadoMil: n, motivo: d.motivo || null, ubicacionProveedorId: lugarId }, true),
+    mutationFn: () => api.post(`/materiales/${material.id}/conteo`, { fecha: d.fecha, contadoMil: n, motivo: d.motivo || null, ubicacionProveedorId: lugarId, colorId: color ?? null }, true),
     onSuccess: () => { avisar('Conteo cargado'); inv(qc); onCerrar(); }, onError: avisarError,
   });
   return (
     <Modal titulo={`Conteo de ${material.nombre}`} onCerrar={onCerrar}>
-      <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (n >= 0) g.mutate(); }}>
+      <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (n >= 0 && !falta) g.mutate(); }}>
+        {material.porColor && <Campo etiqueta="Color" ayuda="Se cuenta cada color por separado."><SelectorColor valor={color} onCambio={setColor} /></Campo>}
         <div className="grid gap-3 sm:grid-cols-2">
           <Campo etiqueta="Fecha"><input className="entrada" type="date" value={d.fecha} onChange={(e) => setD({ ...d, fecha: e.target.value })} /></Campo>
           <Campo etiqueta={`Cuánto hay (${UNIDADES[material.unidad]})`}><input className="entrada" inputMode="decimal" autoFocus value={d.cantidad} onChange={(e) => setD({ ...d, cantidad: e.target.value })} /></Campo>
@@ -210,7 +222,7 @@ function ConteoMaterial({ material, onCerrar }: { material: DetalleMaterial; onC
         <Campo etiqueta="Dónde se contó"><select className="entrada" value={d.lugar} onChange={(e) => setD({ ...d, lugar: e.target.value })}>{lugares.data?.map((l) => <option key={l.ubicacionProveedorId ?? 'l'} value={l.ubicacionProveedorId ?? ''}>{l.nombre === 'Local' ? 'En el local' : `En poder de ${l.nombre}`}</option>)}</select></Campo>
         <p className="text-sm text-carbon/70">El sistema tiene {cant(actual)} {material.unidad} ahí.{n >= 0 && <> Se agrega un movimiento de <b>{n - actual > 0 ? '+' : ''}{cant(n - actual)} {material.unidad}</b> para que quede en {cant(n)}.</>}</p>
         <Campo etiqueta="Notas (opcional)"><input className="entrada" value={d.motivo} onChange={(e) => setD({ ...d, motivo: e.target.value })} placeholder="Ej.: contado en el local" /></Campo>
-        <div className="flex justify-end gap-2"><button type="button" className="btn-secundario" onClick={onCerrar}>Cancelar</button><button className="btn-primario" disabled={!(n >= 0) || g.isPending}>Guardar conteo</button></div>
+        <div className="flex justify-end gap-2"><button type="button" className="btn-secundario" onClick={onCerrar}>Cancelar</button><button className="btn-primario" disabled={!(n >= 0) || falta || g.isPending}>Guardar conteo</button></div>
       </form>
     </Modal>
   );
@@ -220,15 +232,17 @@ function MovimientoMaterial({ material, tipo, onCerrar }: { material: DetalleMat
   const qc = useQueryClient();
   const aux = useQuery({ queryKey: ['aux'], queryFn: () => api.get<Aux>('/catalogo/aux') });
   const [d, setD] = useState({ fecha: hoy(), cantidad: '', costo: material.costoCentavos ?? null as number | null, proveedorId: material.proveedorId, comprobante: '', motivo: '', inicial: false, signo: 1 });
+  const [color, setColor] = useState<number | null | undefined>(undefined);
   const n = leerCant(d.cantidad);
   const g = useMutation({
     mutationFn: () => {
       if (!(n > 0)) throw new Error('Indicá una cantidad mayor a cero');
+      if (material.porColor && color === undefined) throw new Error('Elegí el color');
       if (tipo === 'compra') {
         if (d.costo == null) throw new Error('Indicá el costo por unidad');
-        return api.post(`/materiales/${material.id}/ingresos`, { fecha: d.fecha, cantidadMil: n, costoUnitarioCentavos: d.costo, proveedorId: d.proveedorId, comprobante: d.comprobante || null, notas: d.motivo || null }, true);
+        return api.post(`/materiales/${material.id}/ingresos`, { fecha: d.fecha, colorId: color ?? null, cantidadMil: n, costoUnitarioCentavos: d.costo, proveedorId: d.proveedorId, comprobante: d.comprobante || null, notas: d.motivo || null }, true);
       }
-      return api.post(`/materiales/${material.id}/ajustes`, { fecha: d.fecha, cantidadMil: d.inicial ? n : n * d.signo, motivo: d.motivo, tipo: d.inicial ? 'inicial' : 'ajuste' }, true);
+      return api.post(`/materiales/${material.id}/ajustes`, { fecha: d.fecha, colorId: color ?? null, cantidadMil: d.inicial ? n : n * d.signo, motivo: d.motivo, tipo: d.inicial ? 'inicial' : 'ajuste' }, true);
     },
     onSuccess: () => { avisar(tipo === 'compra' ? 'Compra cargada' : 'Stock ajustado'); inv(qc); onCerrar(); }, onError: avisarError,
   });
@@ -237,6 +251,7 @@ function MovimientoMaterial({ material, tipo, onCerrar }: { material: DetalleMat
       <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); g.mutate(); }}>
         <div className="grid gap-3 sm:grid-cols-2">
           <Campo etiqueta="Fecha"><input className="entrada" type="date" value={d.fecha} onChange={(e) => setD({ ...d, fecha: e.target.value })} required /></Campo>
+          {material.porColor && <Campo etiqueta="Color"><SelectorColor valor={color} onCambio={setColor} /></Campo>}
           {tipo === 'ajuste' && !d.inicial && <Campo etiqueta="Qué pasó"><select className="entrada" value={d.signo} onChange={(e) => setD({ ...d, signo: Number(e.target.value) })}><option value={1}>Sobró / apareció</option><option value={-1}>Faltó / se usó / se rompió</option></select></Campo>}
           <Campo etiqueta={`Cantidad (${UNIDADES[material.unidad]})`}><input className="entrada text-right" inputMode="decimal" value={d.cantidad} onChange={(e) => setD({ ...d, cantidad: e.target.value })} placeholder="1,5" required autoFocus /></Campo>
           {tipo === 'compra' && <Campo etiqueta={`Costo por ${material.unidad}`}><Importe valor={d.costo} onCambio={(c) => setD({ ...d, costo: c })} /></Campo>}
