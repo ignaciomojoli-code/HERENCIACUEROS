@@ -208,17 +208,8 @@ export function PaginaFacturar() {
               )}
             </div>
           )}
-        </section>
-
-        <aside className="tarjeta h-fit space-y-4 p-5 lg:sticky lg:top-6">
-          <div>
-            <div className="etiqueta">Total de la venta</div>
-            <div className="font-titulo text-5xl font-bold tabular-nums">{pesos(total)}</div>
-            {descuento > 0 && <div className="text-sm text-carbon/60">Subtotal {pesos(subtotal)} − descuento {pesos(descuento)}</div>}
-          </div>
-
-          <div className="space-y-2 border-t border-arena pt-4">
-            <div className="etiqueta">Medio de pago</div>
+          <div className="tarjeta space-y-3 p-4">
+            <div className="flex items-baseline justify-between"><div className="etiqueta">Medio de pago</div>{lineas.length > 0 && <span className="text-xs text-carbon/55">Tocá un medio para ver o cambiar su comisión y neto</span>}</div>
             <div className="flex flex-wrap gap-1.5">
               {[...activas.slice(0, 5), ...activas.slice(5).filter((f) => pagos.some((p) => p.formaPagoId === f.id))].map((f) => {
                 const usado = pagos.some((p) => p.formaPagoId === f.id);
@@ -231,16 +222,26 @@ export function PaginaFacturar() {
                 {activas.slice(5).filter((f) => !pagos.some((p) => p.formaPagoId === f.id)).map((f) => <option key={f.id} value={f.id}>{f.nombre}</option>)}
               </select>
             )}
+            <div className={`grid items-start gap-2 ${pagos.length > 1 ? "xl:grid-cols-2" : ""}`}>
             {pagos.map((p, i) => (
               <PagoDesplegable key={p.clave} p={p} formas={activas} restante={restante}
                 onCambio={(c) => cambiarPago(i, c)} onQuitar={() => setPagos(pagos.filter((_, j) => j !== i))} />
             ))}
+            </div>
             {pagos.length > 0 && (
-              <dl className="space-y-0.5 rounded-md bg-crema-50 px-3 py-2 text-sm">
-                <div className="flex justify-between"><dt className="text-carbon/60">Comisiones</dt><dd className="tabular-nums">{totalComisiones ? `− ${pesos(totalComisiones)}` : pesos(0)}</dd></div>
-                <div className="flex justify-between font-medium"><dt>Neto a recibir</dt><dd className="tabular-nums">{pesos(netoEsperado)}</dd></div>
+              <dl className="flex flex-wrap justify-end gap-x-6 gap-y-0.5 rounded-md bg-crema-50 px-3 py-2 text-sm">
+                <div className="flex gap-2"><dt className="text-carbon/60">Comisiones</dt><dd className="tabular-nums">{totalComisiones ? `− ${pesos(totalComisiones)}` : pesos(0)}</dd></div>
+                <div className="flex gap-2 font-medium"><dt>Neto a recibir</dt><dd className="tabular-nums">{pesos(netoEsperado)}</dd></div>
               </dl>
             )}
+          </div>
+        </section>
+
+        <aside className="tarjeta h-fit space-y-4 p-5 lg:sticky lg:top-6">
+          <div>
+            <div className="etiqueta">Total de la venta</div>
+            <div className="font-titulo text-5xl font-bold tabular-nums">{pesos(total)}</div>
+            {descuento > 0 && <div className="text-sm text-carbon/60">Subtotal {pesos(subtotal)} − descuento {pesos(descuento)}</div>}
           </div>
 
           {enEfectivo > 0 && (
@@ -259,6 +260,7 @@ export function PaginaFacturar() {
           <dl className="space-y-1 border-t border-arena pt-4 text-sm">
             <div className="flex justify-between"><dt className="text-carbon/60">Total</dt><dd className="tabular-nums">{pesos(total)}</dd></div>
             <div className="flex justify-between"><dt className="text-carbon/60">Abonado</dt><dd className="tabular-nums">{pesos(abonado)}</dd></div>
+            {totalComisiones > 0 && <div className="flex justify-between"><dt className="text-carbon/60">Comisiones · neto a recibir</dt><dd className="tabular-nums">− {pesos(totalComisiones)} · {pesos(netoEsperado)}</dd></div>}
             <div className="flex items-center justify-between"><dt className="text-carbon/60">{restante >= 0 ? 'Falta pagar' : 'Sobra'}</dt>
               <dd className={`font-titulo text-xl font-bold tabular-nums ${restante > 0 ? 'text-bordo' : restante < 0 ? 'text-conac' : ''}`}>{pesos(Math.abs(restante))}</dd></div>
             {estado && <div className="pt-1"><span className={`pildora ${estado === 'pagado' ? 'bg-carbon text-marfil' : estado === 'falta' ? 'bg-bordo-claro text-bordo' : 'bg-conac-claro text-conac'}`}>{estado === 'pagado' ? 'Pago completo' : estado === 'falta' ? 'Pago incompleto' : 'Pago de más'}</span></div>}
