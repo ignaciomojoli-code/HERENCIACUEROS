@@ -6,7 +6,7 @@ import { useSesion } from '../sesion';
 import type { Aux } from '../tipos';
 import { Campo, Cargando, Encabezado, Estado, Modal, avisar, avisarError } from '../componentes/ui';
 import { pct, pesos } from '../formato';
-import { TIPOS_CUENTA, enMoneda, useCuentas, useFormasPago, type Cuenta, type FormaPago, type TipoCuenta } from '../plata';
+import { MEDIOS, MEDIOS_CON_COMISION, TIPOS_CUENTA, enMoneda, useCuentas, useFormasPago, type Cuenta, type FormaPago, type TipoCuenta, type MedioPago } from '../plata';
 
 export function PaginaCuentasFormas() {
   const { puede } = useSesion();
@@ -22,7 +22,7 @@ export function PaginaCuentasFormas() {
     onSuccess: () => { avisar('Cuenta guardada'); setCuenta(null); qc.invalidateQueries({ queryKey: ['cuentas'] }); qc.invalidateQueries({ queryKey: ['formas-pago'] }); }, onError: avisarError,
   });
   const gForma = useMutation({
-    mutationFn: (f: Partial<FormaPago>) => { const cuerpo = { nombre: f.nombre, cuentaId: f.cuentaId, listaPrecioId: f.listaPrecioId ?? null, comisionBp: f.comisionBp ?? 0, orden: f.orden ?? 0, activo: f.activo ?? true }; return f.id ? api.put(`/formas-pago/${f.id}`, cuerpo) : api.post('/formas-pago', cuerpo); },
+    mutationFn: (f: Partial<FormaPago>) => { const cuerpo = { nombre: f.nombre, cuentaId: f.cuentaId, listaPrecioId: f.listaPrecioId ?? null, comisionBp: f.comisionBp ?? 0, medio: f.medio ?? null, procesador: f.procesador ?? null, cuotas: f.cuotas ?? null, orden: f.orden ?? 0, activo: f.activo ?? true }; return f.id ? api.put(`/formas-pago/${f.id}`, cuerpo) : api.post('/formas-pago', cuerpo); },
     onSuccess: () => { avisar('Forma de pago guardada'); setForma(null); qc.invalidateQueries({ queryKey: ['formas-pago'] }); }, onError: avisarError,
   });
   if (cuentas.isLoading || formas.isLoading) return <Cargando />;
@@ -43,9 +43,9 @@ export function PaginaCuentasFormas() {
       <div className="mb-2 flex items-center justify-between"><h2 className="text-lg font-bold">Formas de pago</h2>{edita && <button className="btn-secundario btn-chico" onClick={() => setForma({ cuentaId: ctas[0]?.id, comisionBp: 0, activo: true })}><Plus className="h-3 w-3" />Nueva forma de pago</button>}</div>
       <div className="tarjeta overflow-x-auto">
         <table className="tabla">
-          <thead><tr><th>Forma de pago</th><th>La plata entra en</th><th>Precio que se cobra</th><th className="num">Comisión estimada</th><th>Estado</th><th /></tr></thead>
+          <thead><tr><th>Forma de pago</th><th>La plata entra en</th><th>Precio que se cobra</th><th className="hidden md:table-cell">Medio</th><th className="num">Comisión estimada</th><th>Estado</th><th /></tr></thead>
           <tbody>{(formas.data ?? []).map((f) => (
-            <tr key={f.id}><td className="font-medium">{f.nombre}</td><td>{f.cuenta}</td><td>{f.lista ?? '—'}</td><td className="num">{pct(f.comisionBp)}</td><td><Estado activo={f.activo} /></td>
+            <tr key={f.id}><td className="font-medium">{f.nombre}</td><td>{f.cuenta}</td><td>{f.lista ?? '—'}</td><td className="hidden md:table-cell text-sm text-carbon/70">{f.medio ? MEDIOS[f.medio] : '—'}{f.procesador ? ` · ${f.procesador}` : ''}{f.cuotas ? ` · ${f.cuotas === 1 ? '1 pago' : `${f.cuotas} cuotas`}` : ''}</td><td className={`num ${f.medio && MEDIOS_CON_COMISION.includes(f.medio) && !f.comisionBp ? 'text-bordo' : ''}`}>{f.medio && MEDIOS_CON_COMISION.includes(f.medio) && !f.comisionBp ? 'Falta configurar' : pct(f.comisionBp)}</td><td><Estado activo={f.activo} /></td>
               <td className="text-right">{edita && <button className="btn-secundario btn-chico" onClick={() => setForma(f)}>Editar</button>}</td></tr>
           ))}</tbody>
         </table>
@@ -74,6 +74,11 @@ export function PaginaCuentasFormas() {
               <Campo etiqueta="La plata entra en"><select className="entrada" value={forma.cuentaId} onChange={(e) => setForma({ ...forma, cuentaId: Number(e.target.value) })}>{ctas.filter((c) => c.activo && c.tipo !== 'externa').map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></Campo>
               <Campo etiqueta="Precio que se cobra"><select className="entrada" value={forma.listaPrecioId ?? ''} onChange={(e) => setForma({ ...forma, listaPrecioId: e.target.value ? Number(e.target.value) : null })}><option value="">—</option>{aux.data?.listasPrecio.map((l) => <option key={l.id} value={l.id}>{l.nombre}</option>)}</select></Campo>
               <Campo etiqueta="Comisión estimada (%)"><input className="entrada text-right" inputMode="decimal" defaultValue={((forma.comisionBp ?? 0) / 100).toString().replace('.', ',')} onChange={(e) => { const n = Number(e.target.value.replace(',', '.')); if (!Number.isNaN(n)) setForma({ ...forma, comisionBp: Math.round(n * 100) }); }} /></Campo>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Campo etiqueta="Medio"><select className="entrada" value={forma.medio ?? ''} onChange={(e) => setForma({ ...forma, medio: (e.target.value || null) as MedioPago | null, cuotas: e.target.value === 'credito' ? forma.cuotas ?? null : null })}><option value="">Sin clasificar</option>{Object.entries(MEDIOS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Campo>
+              <Campo etiqueta="Plataforma"><input className="entrada" placeholder="Mercado Pago, Payway…" value={forma.procesador ?? ''} onChange={(e) => setForma({ ...forma, procesador: e.target.value || null })} /></Campo>
+              {forma.medio === 'credito' && <Campo etiqueta="Cuotas"><input className="entrada text-right" type="number" min={1} value={forma.cuotas ?? ''} onChange={(e) => setForma({ ...forma, cuotas: e.target.value ? Number(e.target.value) : null })} /></Campo>}
             </div>
             {forma.id && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!forma.activo} onChange={(e) => setForma({ ...forma, activo: e.target.checked })} />Activa</label>}
             <div className="flex justify-end gap-2"><button type="button" className="btn-secundario" onClick={() => setForma(null)}>Cancelar</button><button className="btn-primario" disabled={gForma.isPending}>Guardar</button></div>
