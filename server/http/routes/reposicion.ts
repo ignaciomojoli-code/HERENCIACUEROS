@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { Api } from '../app.js';
 import * as rp from '../../services/reposicion.js';
 import * as rm from '../../services/reposicionMateriales.js';
+import * as rg from '../../services/reposicionGeneral.js';
 import { ErrorNegocio } from '../../services/errores.js';
 import { tienePermiso } from '../../domain/permisos.js';
 import { filtrarCostos } from '../filtros.js';
@@ -76,5 +77,47 @@ export async function rutasReposicion(app: FastifyInstance, { base, requiere, co
     if (!tienePermiso(req.usuario!.permisos, 'costos', 'ver')) throw new ErrorNegocio('Armar un pedido requiere ver costos: pedíselo a alguien de compras', 403);
     const d = z.object({ proveedorId: z.number().int(), notas: z.string().nullable().optional(), lineas: z.array(z.object({ materialId: z.number().int(), colorId: z.number().int().nullable().optional(), cantidadMil: z.number().int(), costoUnitarioCentavos: z.number().int().nullable().optional() })) }).parse(req.body);
     return conIdempotencia(base, req, reply, (db) => rm.armarPedidoMateriales(ctx(req, db), d));
+  });
+
+  // ───── Reposición General de productos ─────
+  const vid = (req: FastifyRequest) => {
+    const n = Number((req.params as { varianteId: string }).varianteId);
+    if (!Number.isInteger(n) || n <= 0) throw new ErrorNegocio('Producto inválido');
+    return n;
+  };
+  app.get('/reposicion', async (req) => {
+    requiere(req, 'compras');
+    base.tx((db) => rg.cerrarDescartesRepuestos(ctx(req, db)));
+    return filtrarCostos(req, rg.calcularReposicion(base.db));
+  });
+  app.put('/reposicion/:varianteId/cantidad', async (req) => {
+    requiere(req, 'compras', 'crear');
+    const { cantidad } = z.object({ cantidad: z.number().int() }).parse(req.body);
+    return base.tx((db) => rg.fijarCantidadReposicion(ctx(req, db), vid(req), cantidad));
+  });
+  app.post('/reposicion/:varianteId/descartar', async (req) => {
+    requiere(req, 'compras', 'crear');
+    const { motivo } = z.object({ motivo: z.string().nullable().optional() }).parse(req.body ?? {});
+    return base.tx((db) => rg.descartar(ctx(req, db), vid(req), motivo));
+  });
+  app.post('/reposicion/:varianteId/reincluir', async (req) => {
+    requiere(req, 'compras', 'crear');
+    return base.tx((db) => rg.reincluir(ctx(req, db), vid(req)));
+  });
+  app.post('/reposicion/:varianteId/proveedor', async (req) => {
+    requiere(req, 'compras', 'crear');
+    const d = z.object({ proveedorId: z.number().int(), motivo: z.string().nullable().optional() }).parse(req.body);
+    return base.tx((db) => rg.cambiarProveedor(ctx(req, db), vid(req), d.proveedorId, d.motivo));
+  });
+  app.get('/reposicion/texto', async (req) => {
+    requiere(req, 'compras');
+    const { proveedorId } = z.object({ proveedorId: z.string() }).parse(req.query);
+    return { texto: rg.textoReposicion(base.db, proveedorId === 'ninguno' ? null : Number(proveedorId)) };
+  });
+  app.post('/reposicion/armar', async (req, reply) => {
+    requiere(req, 'compras', 'crear');
+    if (!tienePermiso(req.usuario!.permisos, 'costos', 'ver')) throw new ErrorNegocio('Armar un pedido requiere ver costos: pedíselo a alguien de compras', 403);
+    const d = z.object({ proveedorId: z.number().int(), tipo: z.enum(['reventa', 'confeccion']).optional(), notas: z.string().nullable().optional(), lineas: z.array(z.object({ varianteId: z.number().int(), cantidad: z.number().int() })) }).parse(req.body);
+    return conIdempotencia(base, req, reply, (db) => rg.armarPedidoReposicion(ctx(req, db), d));
   });
 }

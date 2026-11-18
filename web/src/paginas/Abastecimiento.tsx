@@ -26,7 +26,7 @@ interface Datos {
   compraId: number; numero: number; estado: string; tallerId: number; taller: string; abierto: boolean; sinReceta: string[];
   materiales: Fila[]; sugerencias: { proveedorId: number | null; proveedor: string; cuero: boolean; items: Fila[] }[];
   reservadoEnOtros: { compraId: number; numero: number; items: { clave: string; nombre: string; color: string | null; unidad: Unidad; reservadoMil: number }[] }[];
-  proveedoresMateriales: { id: number; nombre: string; rol: string | null }[];
+  proveedoresMateriales: { id: number; nombre: string; rol: string | null; activo: boolean }[];
 }
 
 const CASOS: Record<Caso, { texto: string; clase: string }> = {
@@ -180,7 +180,7 @@ function Sugerencias({ d, onListo }: { d: Datos; onListo: () => void }) {
               <div className="font-bold">{g.cuero ? 'Cuero' : 'Materiales e insumos'}</div>
               {g.cuero || !g.proveedorId ? (
                 <Campo etiqueta="Pedírselo a"><select className="entrada py-1" value={prov[g.proveedor] ?? g.proveedorId ?? ''} onChange={(e) => setProv({ ...prov, [g.proveedor]: e.target.value ? Number(e.target.value) : null })}>
-                  <option value="">Elegí…</option>{d.proveedoresMateriales.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                  <option value="">Elegí…</option>{d.proveedoresMateriales.map((p) => <option key={p.id} value={p.id}>{p.nombre}{p.activo ? '' : ' (inactivo)'}</option>)}
                 </select></Campo>
               ) : <span className="text-sm">{g.proveedor}</span>}
             </div>

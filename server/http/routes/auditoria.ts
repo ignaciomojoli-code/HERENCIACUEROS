@@ -11,7 +11,7 @@ const ENTIDADES: Record<string, [string, string]> = {
   ajuste_proveedor: ['Ajuste de cuenta corriente', 'caja'],
   precio_proveedor: ['Precio de proveedor', 'proveedores'],
   gasto: ['Gasto', 'gastos'], gasto_personal: ['Gasto personal', 'gastos'], categoria_gasto: ['Categoría de gasto', 'gastos'],
-  compra: ['Pedido', 'compras'], compras: ['Compras', 'compras'], recepcion: ['Recepción', 'compras'], lista_pedido: ['Para pedir', 'compras'],
+  compra: ['Pedido', 'compras'], compras: ['Compras', 'compras'], recepcion: ['Recepción', 'compras'], lista_pedido: ['Para pedir', 'compras'], reposicion: ['Reposición general', 'compras'],
   necesidad_material: ['Reposición de materiales', 'compras'], proveedor: ['Proveedor', 'compras'], adjunto: ['Adjunto', 'compras'],
   stock: ['Stock', 'stock'], conteo: ['Conteo', 'stock'],
   modelo: ['Producto', 'catalogo'], variante: ['Variante', 'catalogo'], precio: ['Precio', 'catalogo'], lista_precio: ['Lista de precios', 'catalogo'],

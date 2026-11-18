@@ -701,6 +701,26 @@ export const listaPedido = sqliteTable('lista_pedido', {
   actualizadoEn: actualizadoEn(),
 }, (t) => [index('lista_pedido_estado_idx').on(t.estado), index('lista_pedido_variante_idx').on(t.varianteId)]);
 
+/**
+ * Decisiones sobre la Reposición General de productos (lo que hay que reponer se calcula: stock en cero o bajo el mínimo,
+ * más lo vendido pendiente de pedir). Acá quedan: descartar un producto (vuelve solo si el stock sube por encima del que
+ * tenía al descartarlo, o si se lo reincluye) y cambiar su proveedor. Nada se borra: se anula.
+ */
+export const decisionesReposicion = sqliteTable('decisiones_reposicion', {
+  id: id(),
+  varianteId: integer('variante_id').notNull().references(() => variantes.id),
+  tipo: text('tipo', { enum: ['descartar', 'proveedor'] }).notNull(),
+  proveedorId: integer('proveedor_id').references(() => proveedores.id),
+  /** Al descartar: el stock y la cantidad sugerida de ese momento. */
+  stockAlDescartar: integer('stock_al_descartar'),
+  cantidad: integer('cantidad'),
+  motivo: text('motivo'),
+  estado: text('estado', { enum: ['activa', 'anulada'] }).notNull().default('activa'),
+  usuarioId: integer('usuario_id').references(() => usuarios.id),
+  creadoEn: creadoEn(),
+  actualizadoEn: actualizadoEn(),
+}, (t) => [index('decisiones_reposicion_idx').on(t.varianteId, t.estado)]);
+
 // ───────────────────────── Costos y producción ─────────────────────────
 
 /**
