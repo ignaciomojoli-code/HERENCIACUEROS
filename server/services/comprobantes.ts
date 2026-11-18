@@ -58,6 +58,8 @@ export function vencimientoDe(c: { fecha: string; vencimiento: string | null; co
 export interface DatosComprobante {
   comprobante?: string | null; fechaComprobante?: string | null; descuentoCentavos?: number; impuestosCentavos?: number;
   condicionPago?: CondicionPago | null; plazoPagoDias?: number | null; vencimiento?: string | null;
+  /** Total de la factura (null = todavía no hay factura; la deuda se calcula con lo recibido). */
+  importeFacturadoCentavos?: number | null; ajustePrecioCentavos?: number;
 }
 
 export function validarComprobante(d: DatosComprobante) {
@@ -65,12 +67,17 @@ export function validarComprobante(d: DatosComprobante) {
   if (d.impuestosCentavos != null && (!Number.isInteger(d.impuestosCentavos) || d.impuestosCentavos < 0)) throw new ErrorNegocio('Impuestos inválidos');
   if (d.condicionPago === 'a_plazo' && !(d.plazoPagoDias != null && d.plazoPagoDias > 0) && !d.vencimiento) throw new ErrorNegocio('A plazo: indicá los días o la fecha de vencimiento');
   if (d.plazoPagoDias != null && (!Number.isInteger(d.plazoPagoDias) || d.plazoPagoDias < 0)) throw new ErrorNegocio('Plazo inválido');
+  if (d.importeFacturadoCentavos != null && (!Number.isInteger(d.importeFacturadoCentavos) || d.importeFacturadoCentavos < 0)) throw new ErrorNegocio('Importe facturado inválido');
+  if (d.ajustePrecioCentavos != null && !Number.isInteger(d.ajustePrecioCentavos)) throw new ErrorNegocio('Diferencia de precio inválida');
 }
 
 export const valoresComprobante = (d: DatosComprobante) => ({
   comprobante: d.comprobante?.trim() || null, fechaComprobante: d.fechaComprobante || null,
   descuentoCentavos: d.descuentoCentavos ?? 0, impuestosCentavos: d.impuestosCentavos ?? 0,
   condicionPago: d.condicionPago ?? null, plazoPagoDias: d.condicionPago === 'a_plazo' ? d.plazoPagoDias ?? null : null, vencimiento: d.vencimiento || null,
+  // Si no vienen, no se tocan (pantallas viejas que no los mandan).
+  ...(d.importeFacturadoCentavos !== undefined ? { importeFacturadoCentavos: d.importeFacturadoCentavos } : {}),
+  ...(d.ajustePrecioCentavos !== undefined ? { ajustePrecioCentavos: d.ajustePrecioCentavos } : {}),
 });
 
 /** Corrige los datos del comprobante de un pedido (en cualquier estado salvo anulado). Pide motivo si ya está confirmado. */
@@ -86,8 +93,15 @@ export function guardarComprobante(ctx: Ctx, compraId: number, d: DatosComproban
   return despues;
 }
 
-/** Ajuste del comprobante a la deuda (impuestos − descuento), solo para pedidos vigentes (confirmados o cerrados). */
-export const ajusteComprobanteSql = sql<number>`case when ${compras.estado} in ('confirmada', 'cerrada') then ${compras.impuestosCentavos} - ${compras.descuentoCentavos} else 0 end`;
+/**
+ * Lo que se le debe al proveedor por un pedido vigente (confirmado o cerrado):
+ * - si se cargó el total de la factura, ese total (lo real manda sobre lo calculado);
+ * - si no, lo recibido valorizado al precio confirmado − descuento + impuestos ± diferencia de precio.
+ */
+export function deudaDeCompra(c: { estado: string; descuentoCentavos: number; impuestosCentavos: number; ajustePrecioCentavos: number; importeFacturadoCentavos: number | null }, recibidoCentavos: number) {
+  if (c.estado !== 'confirmada' && c.estado !== 'cerrada') return 0;
+  return c.importeFacturadoCentavos ?? recibidoCentavos - c.descuentoCentavos + c.impuestosCentavos + c.ajustePrecioCentavos;
+}
 
 /** Lo imputado a cada pedido por pagos vigentes. */
 export function imputadoPorCompra(db: DB, compraIds?: number[]) {
@@ -147,7 +161,7 @@ export function comprobantesProveedor(db: DB, proveedorId: number, hoy = hoyLoca
   const lista = listarCompras(db, { proveedorId }).filter((c) => c.estado !== 'anulada' && c.estado !== 'borrador');
   const imputado = imputadoPorCompra(db, lista.map((c) => c.id));
   const comprobantes = lista.map((c) => {
-    const aPagarCentavos = c.recibidoCentavos - c.descuentoCentavos + c.impuestosCentavos;
+    const aPagarCentavos = deudaDeCompra(c, c.recibidoCentavos);
     const pagadoCentavos = imputado.get(c.id) ?? 0;
     const saldoCentavos = aPagarCentavos - pagadoCentavos;
     return { ...c, aPagarCentavos, pagadoCentavos, saldoCentavos, vencido: saldoCentavos > 0 && !!c.vencimientoEfectivo && c.vencimientoEfectivo < hoy };

@@ -15,7 +15,7 @@ import { siguienteNumero } from './numeracion.js';
 import type { Ctx } from './stock.js';
 import { cuentaOError, hoyLocal, registrarSalida, revertirMovimientos } from './caja.js';
 import { listarCompras } from './compras.js';
-import { ajusteComprobanteSql, grabarImputaciones, imputacionesDePagos, validarImputaciones } from './comprobantes.js';
+import { grabarImputaciones, imputacionesDePagos, validarImputaciones } from './comprobantes.js';
 import { imputacionesPago } from '../db/schema.js';
 
 // ───────────── Categorías ─────────────
@@ -253,8 +253,9 @@ export function saldosProveedores(db: DB, proveedorIds?: number[]) {
       from recepcion_materiales rm join recepciones r on r.id = rm.recepcion_id join compras c on c.id = r.compra_id
       where r.estado = 'activa' and c.estado != 'anulada' group by c.proveedor_id
     ) group by p`).filter((x) => !proveedorIds || proveedorIds.includes(x.p));
-  const comp = db.select({ p: compras.proveedorId, s: sql<number>`sum(${ajusteComprobanteSql})` }).from(compras)
-    .where(proveedorIds ? inArray(compras.proveedorId, proveedorIds) : undefined).groupBy(compras.proveedorId).all();
+  // Diferencia entre lo que se debe de cada pedido (factura, o recibido ± descuento, impuestos y diferencia de precio) y lo recibido.
+  const comp = [...listarCompras(db, {}).filter((c) => !proveedorIds || proveedorIds.includes(c.proveedorId)).reduce((m, c) => m.set(c.proveedorId, (m.get(c.proveedorId) ?? 0) + c.aPagarCentavos - (c.estado === 'anulada' ? 0 : c.recibidoCentavos)), new Map<number, number>())]
+    .map(([p, s]) => ({ p, s }));
   const mat = comprasMaterialPorProveedor(db).filter((x) => !proveedorIds || proveedorIds.includes(x.p));
   const aj = db.select({ p: ajustesProveedor.proveedorId, s: sql<number>`sum(${ajustesProveedor.importeCentavos})` }).from(ajustesProveedor)
     .where(and(eq(ajustesProveedor.estado, 'activo'), proveedorIds ? inArray(ajustesProveedor.proveedorId, proveedorIds) : undefined)).groupBy(ajustesProveedor.proveedorId).all();
@@ -284,9 +285,12 @@ export function cuentaCorrienteProveedor(db: DB, proveedorId: number) {
       debeCentavos: Math.max(0, m.importeCentavos), haberCentavos: Math.max(0, -m.importeCentavos) })),
     ...listarAjustesProveedor(db, proveedorId).filter((a) => a.estado === 'activo').map((a) => ({ fecha: a.fecha, orden: 0, tipo: 'ajuste' as const, refId: a.id, detalle: `Ajuste: ${a.motivo}`,
       debeCentavos: Math.max(0, a.importeCentavos), haberCentavos: Math.max(0, -a.importeCentavos) })),
-    ...listarCompras(db, { proveedorId }).filter((c) => (c.estado === 'confirmada' || c.estado === 'cerrada') && c.impuestosCentavos - c.descuentoCentavos !== 0).map((c) => {
-      const neto = c.impuestosCentavos - c.descuentoCentavos;
-      const partes = [c.impuestosCentavos ? `impuestos ${(c.impuestosCentavos / 100).toLocaleString('es-AR')}` : '', c.descuentoCentavos ? `descuento ${(c.descuentoCentavos / 100).toLocaleString('es-AR')}` : ''].filter(Boolean).join(', ');
+    ...listarCompras(db, { proveedorId }).filter((c) => (c.estado === 'confirmada' || c.estado === 'cerrada') && c.aPagarCentavos !== c.recibidoCentavos).map((c) => {
+      const neto = c.aPagarCentavos - c.recibidoCentavos;
+      const p = (n: number) => (n / 100).toLocaleString('es-AR');
+      const partes = c.importeFacturadoCentavos != null
+        ? `factura por ${p(c.importeFacturadoCentavos)} (recibido ${p(c.recibidoCentavos)})`
+        : [c.impuestosCentavos ? `impuestos ${p(c.impuestosCentavos)}` : '', c.descuentoCentavos ? `descuento ${p(c.descuentoCentavos)}` : '', c.ajustePrecioCentavos ? `diferencia de precio ${p(c.ajustePrecioCentavos)}` : ''].filter(Boolean).join(', ');
       return { fecha: c.fechaComprobante ?? c.fecha, orden: 0, tipo: 'comprobante' as const, refId: c.id, detalle: `Pedido P-${c.numero}${c.comprobante ? ' · ' + c.comprobante : ''}: ${partes}`, debeCentavos: Math.max(0, neto), haberCentavos: Math.max(0, -neto) };
     }),
     ...pagos.map((p) => ({ fecha: p.fecha, orden: 1, tipo: 'pago' as const, refId: p.id, detalle: `Pago PP-${p.numero} · ${p.cuenta}${p.imputaciones.length ? ' · a ' + p.imputaciones.map((i) => 'P-' + i.compraNumero).join(', ') : ''}${p.notas ? ' · ' + p.notas : ''}`, debeCentavos: 0, haberCentavos: p.importeCentavos })),

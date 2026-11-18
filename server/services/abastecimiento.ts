@@ -23,6 +23,7 @@ import { claveMaterial, colorDeMovimiento, nombresColores } from './costos.js';
 import { crearTraslado, materialesDePedido, stockPorLugarColor } from './custodia.js';
 import { armarPedidoMateriales } from './reposicionMateriales.js';
 import { hoyLocal } from './caja.js';
+import { precioParaEstimar } from './preciosProveedor.js';
 
 type Pedido = typeof compras.$inferSelect;
 const abierto = (c: Pedido) => c.estado === 'borrador' || c.estado === 'confirmada';
@@ -127,7 +128,7 @@ export function abastecimiento(db: DB, compraId: number) {
     const caso = x.falta === 0 ? 'cubierto' : x.faltaComprar === 0 && x.enCamino === 0 ? 'A' : x.reservado + x.usarStock + x.enCamino > 0 ? 'B' : 'C';
     return {
       ...m, clasificacion: mat.m.clasificacion, esCuero: mat.m.clasificacion === 'materia_prima',
-      proveedorId: mat.m.proveedorId, proveedor: mat.proveedor, costoCentavos: mat.m.costoCentavos,
+      proveedorId: mat.m.proveedorId, proveedor: mat.proveedor, costoCentavos: precioParaEstimar(db, mat.m.proveedorId, m.materialId, m.colorId, mat.m.costoCentavos),
       stockLocalMil: enLugar(m.clave, null),
       cubreTallerMil: x.cubreTaller, faltaEntregarMil: x.falta, reservadoMil: x.reservado, usarStockMil: x.usarStock,
       disponibleParaReservarMil: Math.max(0, Math.min(x.falta, enLugar(m.clave, null) - reservadoOtros)),

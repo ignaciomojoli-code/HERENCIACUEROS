@@ -330,6 +330,10 @@ export const compras = sqliteTable('compras', {
   plazoPagoDias: integer('plazo_pago_dias'),
   /** Vencimiento fijado a mano; si es null se calcula según la condición de pago. */
   vencimiento: text('vencimiento'),
+  /** Total de la factura del proveedor. Si está cargado, es lo que se le debe por este pedido (manda sobre lo calculado). */
+  importeFacturadoCentavos: integer('importe_facturado_centavos'),
+  /** Diferencia de precio o redondeo acordada con el proveedor (suma o resta a lo que se le debe, como los impuestos). */
+  ajustePrecioCentavos: integer('ajuste_precio_centavos').notNull().default(0),
   /** Lote de importación del que salió (null = cargado a mano). */
   importacionId: integer('importacion_id'),
   usuarioId: integer('usuario_id').references(() => usuarios.id),
@@ -341,8 +345,14 @@ export const compraItems = sqliteTable('compra_items', {
   id: id(),
   compraId: integer('compra_id').notNull().references(() => compras.id),
   varianteId: integer('variante_id').notNull().references(() => variantes.id),
+  /** Cantidad y costo confirmados con el proveedor (lo que vale para recibir y para la deuda). */
   cantidad: integer('cantidad').notNull(),
   costoUnitarioCentavos: integer('costo_unitario_centavos').notNull(),
+  /** Lo pedido originalmente y el precio estimado de ese momento (null en pedidos viejos = igual a lo confirmado). */
+  cantidadSolicitada: integer('cantidad_solicitada'),
+  costoEstimadoCentavos: integer('costo_estimado_centavos'),
+  /** Lo que figura en la factura (informativo; la deuda la fija el total facturado del pedido). */
+  cantidadFacturada: integer('cantidad_facturada'),
   notas: text('notas'),
 }, (t) => [index('compra_items_compra_idx').on(t.compraId)]);
 
@@ -377,6 +387,9 @@ export const compraMateriales = sqliteTable('compra_materiales', {
   colorId: integer('color_id').references(() => colores.id),
   cantidadMil: integer('cantidad_mil').notNull(),
   costoUnitarioCentavos: integer('costo_unitario_centavos').notNull(),
+  cantidadSolicitadaMil: integer('cantidad_solicitada_mil'),
+  costoEstimadoCentavos: integer('costo_estimado_centavos'),
+  cantidadFacturadaMil: integer('cantidad_facturada_mil'),
   notas: text('notas'),
 }, (t) => [index('compra_materiales_compra_idx').on(t.compraId)]);
 
@@ -487,6 +500,8 @@ export const ventas = sqliteTable('ventas', {
   /** Descuento sobre el total de la venta (además de lo que se haya cambiado en el precio de cada producto). */
   descuentoCentavos: integer('descuento_centavos').notNull().default(0),
   motivoDescuento: text('motivo_descuento'),
+  /** Efectivo que entregó el cliente (para el vuelto). En caja entra solo lo aplicado a la venta. */
+  efectivoRecibidoCentavos: integer('efectivo_recibido_centavos'),
   /** Sube cada vez que se edita la venta; las versiones anteriores quedan en venta_versiones. */
   version: integer('version').notNull().default(1),
   /** Lista con la que se armaron los precios (efectivo o tarjeta). */
@@ -824,3 +839,24 @@ export const reservasMaterial = sqliteTable('reservas_material', {
   creadoEn: creadoEn(),
   actualizadoEn: actualizadoEn(),
 }, (t) => [index('reservas_material_compra_idx').on(t.compraId, t.estado)]);
+
+/**
+ * Historial de precios por proveedor. 'compra' = precio acordado en un pedido (se guarda solo);
+ * 'habitual' = precio de referencia del proveedor, que cambia solo cuando el usuario lo decide.
+ * Un renglón es de un material (con color si va por color) o de un producto (variante).
+ */
+export const preciosProveedor = sqliteTable('precios_proveedor', {
+  id: id(),
+  proveedorId: integer('proveedor_id').notNull().references(() => proveedores.id),
+  materialId: integer('material_id').references(() => materiales.id),
+  colorId: integer('color_id').references(() => colores.id),
+  varianteId: integer('variante_id').references(() => variantes.id),
+  precioCentavos: integer('precio_centavos').notNull(),
+  fecha: text('fecha').notNull(),
+  origen: text('origen', { enum: ['compra', 'habitual'] }).notNull(),
+  compraId: integer('compra_id').references(() => compras.id),
+  motivo: text('motivo'),
+  estado: text('estado', { enum: ['activo', 'anulado'] }).notNull().default('activo'),
+  usuarioId: integer('usuario_id').references(() => usuarios.id),
+  creadoEn: creadoEn(),
+}, (t) => [index('precios_proveedor_idx').on(t.proveedorId, t.materialId, t.varianteId)]);

@@ -1,7 +1,11 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus } from 'lucide-react';
+import { Importe } from '../componentes/Importe';
+import { SelectorColor } from '../componentes/SelectorColor';
+import { useMateriales } from '../costos';
+import { fecha as fmtFecha, pct, pesos } from '../formato';
 import { api } from '../api';
 import { useSesion } from '../sesion';
 import { Campo, Cargando, Encabezado, ErrorCarga, Estado, Modal, Pendiente, Vacio, avisar, avisarError } from '../componentes/ui';
@@ -27,6 +31,7 @@ export function PaginaProveedores() {
   const lista = useQuery({ queryKey: ['proveedores'], queryFn: () => api.get<Proveedor[]>('/proveedores') });
   const [editar, setEditar] = useState<Partial<Proveedor> | null>(null);
   const [verInactivos, setVerInactivos] = useState(false);
+  const [precios, setPrecios] = useState<Proveedor | null>(null);
   const guardar = useMutation({
     mutationFn: (p: Partial<Proveedor>) => {
       const { id, esDemo: _e, ...resto } = p as Proveedor;
@@ -71,6 +76,7 @@ export function PaginaProveedores() {
                   <td><Estado activo={p.activo} /></td>
                   <td className="whitespace-nowrap text-right">
                     {puede('compras') && <Link className="btn-secundario btn-chico mr-1" to={`/compras?proveedor=${p.id}&estado=todos`}>Compras</Link>}
+                    {puede('costos') && <button className="btn-secundario btn-chico mr-1" onClick={() => setPrecios(p)}>Precios</button>}
                     {puede('proveedores', 'modificar') && <button className="btn-secundario btn-chico" onClick={() => setEditar(p)}>Editar</button>}
                   </td>
                 </tr>
@@ -79,6 +85,7 @@ export function PaginaProveedores() {
           </table>
         </div>
       )}
+      {precios && <ModalPrecios proveedor={precios} onCerrar={() => setPrecios(null)} />}
       {editar && (
         <Modal titulo={editar.id ? editar.nombre! : 'Nuevo proveedor'} onCerrar={() => setEditar(null)} ancho="max-w-2xl">
           <form onSubmit={(e) => { e.preventDefault(); guardar.mutate(editar); }} className="space-y-4">
@@ -109,4 +116,78 @@ export function PaginaProveedores() {
 function textoPago(p: Pick<Proveedor, 'condicionPago' | 'plazoPagoDias'>) {
   if (p.condicionPago === 'a_plazo') return p.plazoPagoDias ? `A ${p.plazoPagoDias} días` : 'A plazo';
   return p.condicionPago ? { al_pedir: 'Al pedir', al_recibir: 'Al recibir', cuenta_corriente: 'Cta. corriente' }[p.condicionPago] : '';
+}
+
+interface GrupoPrecio {
+  clave: string; materialId: number | null; colorId: number | null; varianteId: number | null; nombre: string; detalle: string | null; unidad: string | null;
+  habitualCentavos: number | null; habitualFecha: string | null; ultimoCentavos: number; ultimaFecha: string; variacionBp: number | null;
+  cambios: { id: number; fecha: string; origen: 'compra' | 'habitual'; precioCentavos: number; compraNumero: number | null; motivo: string | null; variacionBp: number | null }[];
+}
+
+/**
+ * Precios del proveedor: el habitual (el que se usa para estimar pedidos; cambia solo cuando lo decidís)
+ * y el historial de lo que se acordó en cada pedido, con fecha y aumento.
+ */
+function ModalPrecios({ proveedor, onCerrar }: { proveedor: Proveedor; onCerrar: () => void }) {
+  const { puede } = useSesion();
+  const qc = useQueryClient();
+  const h = useQuery({ queryKey: ['precios-proveedor', proveedor.id], queryFn: () => api.get<GrupoPrecio[]>(`/proveedores/${proveedor.id}/precios`) });
+  const mats = useMateriales();
+  const [abierto, setAbierto] = useState<string | null>(null);
+  const [editar, setEditar] = useState<{ materialId: number | null; colorId: number | null; varianteId: number | null; precio: number | null; motivo: string; nombre?: string } | null>(null);
+  const guardar = useMutation({
+    mutationFn: () => api.post(`/proveedores/${proveedor.id}/precios`, { materialId: editar!.materialId, colorId: editar!.colorId, varianteId: editar!.varianteId, precioCentavos: editar!.precio, motivo: editar!.motivo || null }),
+    onSuccess: () => { avisar('Precio habitual guardado'); setEditar(null); qc.invalidateQueries({ queryKey: ['precios-proveedor', proveedor.id] }); }, onError: avisarError,
+  });
+  const material = mats.data?.find((m) => m.id === editar?.materialId);
+  return (
+    <Modal titulo={`Precios de ${proveedor.nombre}`} onCerrar={onCerrar} ancho="max-w-4xl">
+      <p className="mb-3 text-sm text-carbon/65">El <b>precio habitual</b> se usa para estimar los pedidos nuevos y solo cambia cuando lo decidís. Lo acordado en cada pedido queda guardado solo, con su fecha.</p>
+      {puede('proveedores', 'modificar') && !editar && <button className="btn-secundario btn-chico mb-3" onClick={() => setEditar({ materialId: null, colorId: null, varianteId: null, precio: null, motivo: '' })}><Plus className="h-3.5 w-3.5" />Cargar precio habitual de un material</button>}
+      {editar && (
+        <div className="tarjeta mb-4 grid gap-3 bg-crema p-4 sm:grid-cols-[minmax(0,1fr)_10rem_10rem]">
+          {editar.nombre ? <div className="self-center font-medium">{editar.nombre}</div> : (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <select className="entrada" value={editar.materialId ?? ''} onChange={(e) => setEditar({ ...editar, materialId: e.target.value ? Number(e.target.value) : null, colorId: null })} aria-label="Material">
+                <option value="">Elegí el material…</option>{mats.data?.filter((m) => m.activo && m.tipo === 'material').map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+              </select>
+              {material?.porColor && <SelectorColor valor={editar.colorId} onCambio={(c) => setEditar({ ...editar, colorId: c })} />}
+            </div>
+          )}
+          <Importe valor={editar.precio} onCambio={(c) => setEditar({ ...editar, precio: c })} placeholder="Precio" />
+          <input className="entrada" placeholder="Motivo (opcional)" value={editar.motivo} onChange={(e) => setEditar({ ...editar, motivo: e.target.value })} />
+          <div className="flex justify-end gap-2 sm:col-span-3"><button className="btn-secundario btn-chico" onClick={() => setEditar(null)}>Cancelar</button><button className="btn-primario btn-chico" disabled={editar.precio == null || (!editar.materialId && !editar.varianteId) || guardar.isPending} onClick={() => guardar.mutate()}>Guardar precio habitual</button></div>
+        </div>
+      )}
+      {h.isLoading ? <Cargando /> : h.isError ? <ErrorCarga error={h.error} /> : !h.data!.length ? <Vacio>Todavía no hay precios de este proveedor. Se van guardando solos al confirmar pedidos.</Vacio> : (
+        <div className="overflow-x-auto">
+          <table className="tabla">
+            <thead><tr><th>Material o producto</th><th className="num">Habitual</th><th className="num">Último</th><th className="num">Cambio</th><th>Fecha</th><th /></tr></thead>
+            <tbody>
+              {h.data!.map((g) => (
+                <Fragment key={g.clave}>
+                  <tr className="cursor-pointer" onClick={() => setAbierto(abierto === g.clave ? null : g.clave)}>
+                    <td>{abierto === g.clave ? <ChevronDown className="mr-1 inline h-3.5 w-3.5" /> : <ChevronRight className="mr-1 inline h-3.5 w-3.5" />}<b>{g.nombre}</b>{g.detalle && <span className="text-carbon/55"> · {g.detalle}</span>}{g.unidad && <span className="text-xs text-carbon/45"> (por {g.unidad})</span>}</td>
+                    <td className="num">{g.habitualCentavos == null ? <span className="text-carbon/40">—</span> : pesos(g.habitualCentavos)}</td>
+                    <td className="num font-medium">{pesos(g.ultimoCentavos)}</td>
+                    <td className={`num ${(g.variacionBp ?? 0) > 0 ? 'text-bordo' : 'text-carbon/50'}`}>{g.variacionBp == null ? '—' : `${g.variacionBp > 0 ? '+' : ''}${pct(g.variacionBp)}`}</td>
+                    <td className="whitespace-nowrap text-carbon/60">{fmtFecha(g.ultimaFecha + 'T12:00')}</td>
+                    <td className="text-right">{puede('proveedores', 'modificar') && <button className="btn-secundario btn-chico" onClick={(e) => { e.stopPropagation(); setEditar({ materialId: g.materialId, colorId: g.colorId, varianteId: g.varianteId, precio: g.ultimoCentavos, motivo: '', nombre: `${g.nombre}${g.detalle ? ' · ' + g.detalle : ''}` }); }}>Fijar habitual</button>}</td>
+                  </tr>
+                  {abierto === g.clave && g.cambios.map((c) => (
+                    <tr key={g.clave + c.id} className="bg-crema/60 text-xs">
+                      <td className="pl-9">{c.origen === 'habitual' ? 'Precio habitual' : `Pedido P-${c.compraNumero}`}{c.motivo && <span className="text-carbon/55"> · {c.motivo}</span>}</td>
+                      <td /><td className="num">{pesos(c.precioCentavos)}</td>
+                      <td className={`num ${(c.variacionBp ?? 0) > 0 ? 'text-bordo' : 'text-carbon/50'}`}>{c.variacionBp == null ? '' : `${c.variacionBp > 0 ? '+' : ''}${pct(c.variacionBp)}`}</td>
+                      <td className="whitespace-nowrap text-carbon/60">{fmtFecha(c.fecha + 'T12:00')}</td><td />
+                    </tr>
+                  ))}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Modal>
+  );
 }

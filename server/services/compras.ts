@@ -13,11 +13,13 @@ import { auditar } from './auditoria.js';
 import { ErrorNegocio, noEncontrado } from './errores.js';
 import { siguienteNumero } from './numeracion.js';
 import { registrarMovimiento, stockDeUna, type Ctx } from './stock.js';
-import { estadoPedido, imputacionesDePagos, imputadoPorCompra, listarAdjuntos, validarComprobante, valoresComprobante, vencimientoDe, type DatosComprobante } from './comprobantes.js';
+import { deudaDeCompra, estadoPedido, imputacionesDePagos, imputadoPorCompra, listarAdjuntos, validarComprobante, valoresComprobante, vencimientoDe, type DatosComprobante } from './comprobantes.js';
 import { pagosProveedor } from '../db/schema.js';
+import { clavePrecio, referenciasDePrecio, registrarPreciosDeCompra } from './preciosProveedor.js';
 
-export interface ItemCompra { varianteId: number; cantidad: number; costoUnitarioCentavos: number; notas?: string | null }
-export interface ItemMaterial { materialId: number; colorId?: number | null; cantidadMil: number; costoUnitarioCentavos: number; notas?: string | null }
+/** Cantidad y costo = lo confirmado. Lo solicitado y el precio estimado se guardan aparte (si no vienen, se toman de lo confirmado). */
+export interface ItemCompra { varianteId: number; cantidad: number; costoUnitarioCentavos: number; cantidadSolicitada?: number | null; costoEstimadoCentavos?: number | null; cantidadFacturada?: number | null; notas?: string | null }
+export interface ItemMaterial { materialId: number; colorId?: number | null; cantidadMil: number; costoUnitarioCentavos: number; cantidadSolicitadaMil?: number | null; costoEstimadoCentavos?: number | null; cantidadFacturadaMil?: number | null; notas?: string | null }
 export type TipoCompra = 'reventa' | 'confeccion' | 'materiales';
 export interface DatosCompra extends DatosComprobante { proveedorId: number; tipo: TipoCompra; fecha: string; fechaEsperada?: string | null; notas?: string | null; items: ItemCompra[]; materiales?: ItemMaterial[] }
 
@@ -44,9 +46,23 @@ function validarLineas(db: DB, d: DatosCompra) {
   }
 }
 
-function insertarLineas(ctx: Ctx, compraId: number, d: DatosCompra) {
-  if (d.items.length) ctx.db.insert(compraItems).values(d.items.map((i) => ({ compraId, varianteId: i.varianteId, cantidad: i.cantidad, costoUnitarioCentavos: i.costoUnitarioCentavos, notas: i.notas ?? null }))).run();
-  if (d.materiales?.length) ctx.db.insert(compraMateriales).values(d.materiales.map((i) => ({ compraId, materialId: i.materialId, colorId: i.colorId ?? null, cantidadMil: i.cantidadMil, costoUnitarioCentavos: i.costoUnitarioCentavos, notas: i.notas ?? null }))).run();
+/**
+ * Graba las líneas. Lo solicitado y el precio estimado quedan como estaban la primera vez que se cargó la línea
+ * (así, si en el borrador se corrige el precio que pasó el proveedor, se sigue viendo lo que se había estimado).
+ */
+function insertarLineas(ctx: Ctx, compraId: number, d: DatosCompra, previos: { items?: (typeof compraItems.$inferSelect)[]; materiales?: (typeof compraMateriales.$inferSelect)[] } = {}) {
+  if (d.items.length) ctx.db.insert(compraItems).values(d.items.map((i) => {
+    const p = previos.items?.find((x) => x.varianteId === i.varianteId);
+    return { compraId, varianteId: i.varianteId, cantidad: i.cantidad, costoUnitarioCentavos: i.costoUnitarioCentavos,
+      cantidadSolicitada: i.cantidadSolicitada ?? p?.cantidadSolicitada ?? p?.cantidad ?? i.cantidad, costoEstimadoCentavos: i.costoEstimadoCentavos ?? p?.costoEstimadoCentavos ?? p?.costoUnitarioCentavos ?? i.costoUnitarioCentavos,
+      cantidadFacturada: i.cantidadFacturada ?? null, notas: i.notas ?? null };
+  })).run();
+  if (d.materiales?.length) ctx.db.insert(compraMateriales).values(d.materiales.map((i) => {
+    const p = previos.materiales?.find((x) => x.materialId === i.materialId && (x.colorId ?? null) === (i.colorId ?? null));
+    return { compraId, materialId: i.materialId, colorId: i.colorId ?? null, cantidadMil: i.cantidadMil, costoUnitarioCentavos: i.costoUnitarioCentavos,
+      cantidadSolicitadaMil: i.cantidadSolicitadaMil ?? p?.cantidadSolicitadaMil ?? p?.cantidadMil ?? i.cantidadMil, costoEstimadoCentavos: i.costoEstimadoCentavos ?? p?.costoEstimadoCentavos ?? p?.costoUnitarioCentavos ?? i.costoUnitarioCentavos,
+      cantidadFacturadaMil: i.cantidadFacturadaMil ?? null, notas: i.notas ?? null };
+  })).run();
 }
 
 function validarItems(db: DB, items: ItemCompra[]) {
@@ -81,6 +97,7 @@ export function crearCompra(ctx: Ctx, d: DatosCompra, confirmar = false) {
     notas: d.notas ?? null, estado: confirmar ? 'confirmada' : 'borrador', usuarioId: ctx.usuarioId, creadoEn: t, actualizadoEn: t,
   }).returning().get();
   insertarLineas(ctx, c.id, d);
+  if (confirmar) registrarPreciosDeCompra(ctx, c.id, d.fecha);
   auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'crear', entidad: 'compra', entidadId: c.id, despues: { ...c, items: d.items, materiales: d.materiales ?? [] } });
   return c;
 }
@@ -104,7 +121,7 @@ export function actualizarCompra(ctx: Ctx, id: number, d: DatosCompra) {
   // Borrador: todavía no es una operación registrada (el antes queda en auditoría).
   ctx.db.delete(compraItems).where(eq(compraItems.compraId, id)).run();
   ctx.db.delete(compraMateriales).where(eq(compraMateriales.compraId, id)).run();
-  insertarLineas(ctx, id, d);
+  insertarLineas(ctx, id, d, { items: itemsAntes, materiales: materialesAntes });
   const despues = ctx.db.update(compras).set({ ...valoresComprobante(d), proveedorId: d.proveedorId, tipo: d.tipo, fecha: d.fecha, fechaEsperada: d.fechaEsperada ?? null, notas: d.notas ?? null, actualizadoEn: ahora() }).where(eq(compras.id, id)).returning().get();
   auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'modificar', entidad: 'compra', entidadId: id, antes: { ...antes, items: itemsAntes, materiales: materialesAntes }, despues: { ...despues, items: d.items, materiales: d.materiales ?? [] } });
   return despues;
@@ -128,10 +145,121 @@ export function cambiarEstadoCompra(ctx: Ctx, id: number, accion: 'confirmar' | 
     estado = 'anulada';
   }
   const despues = ctx.db.update(compras).set({ estado, actualizadoEn: ahora() }).where(eq(compras.id, id)).returning().get();
+  if (estado === 'confirmada') registrarPreciosDeCompra(ctx, id);
   if (estado === 'anulada') { devolverDePedido(ctx, id); devolverNecesidades(ctx, id); }
   auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: accion === 'anular' ? 'anular' : 'modificar', entidad: 'compra', entidadId: id, antes: { estado: c.estado }, despues: { estado }, detalle: motivo });
   return despues;
 }
+
+export interface DatosCorreccion extends DatosComprobante {
+  motivo: string; fecha?: string; fechaEsperada?: string | null; notas?: string | null;
+  /** Líneas a corregir (con id) o a agregar (sin id). Las que no vienen quedan como están. */
+  items?: { id?: number; varianteId?: number; cantidad: number; costoUnitarioCentavos: number; cantidadFacturada?: number | null }[];
+  materiales?: { id?: number; materialId?: number; colorId?: number | null; cantidadMil: number; costoUnitarioCentavos: number; cantidadFacturadaMil?: number | null }[];
+  /** true (por defecto): el precio nuevo vale también para lo ya recibido, así la deuda queda al precio real. */
+  precioALoRecibido?: boolean;
+}
+
+/**
+ * Corrige un pedido ya confirmado (o cerrado) con lo que realmente se acordó con el proveedor: cantidades, precios,
+ * lo facturado, descuento, impuestos, diferencia de precio, fechas, condición de pago y notas. Nunca bloquea porque
+ * el precio real no coincida con el estimado. Queda todo en auditoría (antes, después, usuario y motivo).
+ *
+ * Lo ya recibido no se puede bajar desde acá (eso se hace anulando la recepción). Si cambia el precio de una línea
+ * con unidades recibidas, por defecto se corrige también el precio de lo recibido: así la deuda queda al precio real.
+ * El costo del stock no se toca (para eso está el precio en Materiales o Catálogo, cuando el usuario lo decide).
+ */
+export function corregirCompra(ctx: Ctx, id: number, d: DatosCorreccion) {
+  if (!d.motivo?.trim()) throw new ErrorNegocio('Indicá el motivo de la corrección');
+  const c = compraOError(ctx.db, id);
+  if (c.estado === 'borrador') throw new ErrorNegocio('El pedido está en borrador: editalo directamente');
+  if (c.estado === 'anulada') throw new ErrorNegocio('El pedido está anulado');
+  validarComprobante(d);
+  const antes = obtenerCompra(ctx.db, id);
+  const t = ahora();
+  const aRecibido = d.precioALoRecibido !== false;
+  const recItems = recibidoPorItem(ctx.db, id);
+  const recMat = recibidoPorMaterial(ctx.db, id);
+  const lineasRecepcion = (tabla: 'items' | 'materiales', lineaId: number) => tabla === 'items'
+    ? ctx.db.select({ id: recepcionItems.id }).from(recepcionItems).innerJoin(recepciones, eq(recepciones.id, recepcionItems.recepcionId)).where(and(eq(recepcionItems.compraItemId, lineaId), eq(recepciones.estado, 'activa'))).all()
+    : ctx.db.select({ id: recepcionMateriales.id }).from(recepcionMateriales).innerJoin(recepciones, eq(recepciones.id, recepcionMateriales.recepcionId)).where(and(eq(recepcionMateriales.compraMaterialId, lineaId), eq(recepciones.estado, 'activa'))).all();
+
+  if (c.tipo === 'materiales' && d.items?.length) throw new ErrorNegocio('Este pedido es de materiales');
+  if (c.tipo !== 'materiales' && d.materiales?.length) throw new ErrorNegocio('Este pedido es de productos');
+  for (const l of d.items ?? []) {
+    if (!Number.isInteger(l.cantidad) || l.cantidad < 0) throw new ErrorNegocio('Las cantidades no pueden ser negativas');
+    if (!Number.isInteger(l.costoUnitarioCentavos) || l.costoUnitarioCentavos < 0) throw new ErrorNegocio('Precio inválido');
+    if (l.cantidadFacturada != null && (!Number.isInteger(l.cantidadFacturada) || l.cantidadFacturada < 0)) throw new ErrorNegocio('Cantidad facturada inválida');
+    if (l.id) {
+      const it = ctx.db.select().from(compraItems).where(and(eq(compraItems.id, l.id), eq(compraItems.compraId, id))).get();
+      if (!it) throw new ErrorNegocio('Hay una línea que no pertenece a este pedido');
+      const rec = recItems.get(it.id) ?? 0;
+      if (l.cantidad < rec) throw new ErrorNegocio(`Ya se recibieron ${rec} de esa línea: no se puede confirmar menos. Si vino menos, anulá la recepción y cargala de nuevo`);
+      ctx.db.update(compraItems).set({ cantidad: l.cantidad, costoUnitarioCentavos: l.costoUnitarioCentavos, ...(l.cantidadFacturada !== undefined ? { cantidadFacturada: l.cantidadFacturada } : {}) }).where(eq(compraItems.id, it.id)).run();
+      if (aRecibido && l.costoUnitarioCentavos !== it.costoUnitarioCentavos) {
+        const ids = lineasRecepcion('items', it.id).map((r) => r.id);
+        if (ids.length) ctx.db.update(recepcionItems).set({ costoUnitarioCentavos: l.costoUnitarioCentavos }).where(inArray(recepcionItems.id, ids)).run();
+      }
+    } else {
+      if (!l.varianteId) throw new ErrorNegocio('Falta el producto de la línea nueva');
+      validarItems(ctx.db, [{ varianteId: l.varianteId, cantidad: Math.max(1, l.cantidad), costoUnitarioCentavos: l.costoUnitarioCentavos }]);
+      if (ctx.db.select({ id: compraItems.id }).from(compraItems).where(and(eq(compraItems.compraId, id), eq(compraItems.varianteId, l.varianteId))).get()) throw new ErrorNegocio('Ese producto ya está en el pedido: corregí su línea');
+      ctx.db.insert(compraItems).values({ compraId: id, varianteId: l.varianteId, cantidad: l.cantidad, costoUnitarioCentavos: l.costoUnitarioCentavos, cantidadSolicitada: 0, costoEstimadoCentavos: null, cantidadFacturada: l.cantidadFacturada ?? null }).run();
+    }
+  }
+  for (const l of d.materiales ?? []) {
+    if (!Number.isInteger(l.cantidadMil) || l.cantidadMil < 0) throw new ErrorNegocio('Las cantidades no pueden ser negativas');
+    if (!Number.isInteger(l.costoUnitarioCentavos) || l.costoUnitarioCentavos < 0) throw new ErrorNegocio('Precio inválido');
+    if (l.cantidadFacturadaMil != null && (!Number.isInteger(l.cantidadFacturadaMil) || l.cantidadFacturadaMil < 0)) throw new ErrorNegocio('Cantidad facturada inválida');
+    if (l.id) {
+      const lp = ctx.db.select().from(compraMateriales).where(and(eq(compraMateriales.id, l.id), eq(compraMateriales.compraId, id))).get();
+      if (!lp) throw new ErrorNegocio('Hay una línea que no pertenece a este pedido');
+      const rec = recMat.get(lp.id) ?? 0;
+      if (l.cantidadMil < rec) throw new ErrorNegocio(`Ya se recibieron ${rec / 1000} de esa línea: no se puede confirmar menos. Si vino menos, anulá la recepción y cargala de nuevo`);
+      ctx.db.update(compraMateriales).set({ cantidadMil: l.cantidadMil, costoUnitarioCentavos: l.costoUnitarioCentavos, ...(l.cantidadFacturadaMil !== undefined ? { cantidadFacturadaMil: l.cantidadFacturadaMil } : {}) }).where(eq(compraMateriales.id, lp.id)).run();
+      if (aRecibido && l.costoUnitarioCentavos !== lp.costoUnitarioCentavos) {
+        const ids = lineasRecepcion('materiales', lp.id).map((r) => r.id);
+        if (ids.length) ctx.db.update(recepcionMateriales).set({ costoUnitarioCentavos: l.costoUnitarioCentavos }).where(inArray(recepcionMateriales.id, ids)).run();
+      }
+    } else {
+      if (!l.materialId) throw new ErrorNegocio('Falta el material de la línea nueva');
+      const m = ctx.db.select().from(materiales).where(eq(materiales.id, l.materialId)).get();
+      if (!m) throw noEncontrado('El material');
+      if (m.tipo === 'mano_obra') throw new ErrorNegocio('La mano de obra no se pide como material');
+      const colorId = colorDeMovimiento(ctx.db, m, l.colorId);
+      const ya = ctx.db.select().from(compraMateriales).where(eq(compraMateriales.compraId, id)).all().some((x) => x.materialId === m.id && (x.colorId ?? null) === colorId);
+      if (ya) throw new ErrorNegocio(`${m.nombre} ya está en el pedido: corregí su línea`);
+      ctx.db.insert(compraMateriales).values({ compraId: id, materialId: m.id, colorId, cantidadMil: l.cantidadMil, costoUnitarioCentavos: l.costoUnitarioCentavos, cantidadSolicitadaMil: 0, costoEstimadoCentavos: null, cantidadFacturadaMil: l.cantidadFacturadaMil ?? null }).run();
+    }
+  }
+  // Si quedó todo recibido se cierra; si se confirmó más de lo recibido, vuelve a quedar abierto.
+  const pedido = obtenerCompra(ctx.db, id);
+  const pendiente = c.tipo === 'materiales' ? pedido.materiales.reduce((s, l) => s + l.pendienteMil, 0) : pedido.items.reduce((s, l) => s + l.pendiente, 0);
+  const estado = c.estado === 'cerrada' && pendiente > 0 && antes.estadoPedido === 'entregado' ? 'confirmada' : c.estado === 'confirmada' && pendiente === 0 ? 'cerrada' : c.estado;
+  ctx.db.update(compras).set({
+    ...valoresComprobante({ ...camposComprobante(c), ...quitarIndefinidos(d) }),
+    ...(d.fecha ? { fecha: d.fecha } : {}), ...(d.fechaEsperada !== undefined ? { fechaEsperada: d.fechaEsperada } : {}), ...(d.notas !== undefined ? { notas: d.notas?.trim() || null } : {}),
+    estado, actualizadoEn: t,
+  }).where(eq(compras.id, id)).run();
+  registrarPreciosDeCompra(ctx, id);
+  const despues = obtenerCompra(ctx.db, id);
+  auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'modificar', entidad: 'compra', entidadId: id, detalle: d.motivo.trim(), antes: resumenCompra(antes), despues: resumenCompra(despues) });
+  return despues;
+}
+
+const camposComprobante = (c: typeof compras.$inferSelect): DatosComprobante => ({
+  comprobante: c.comprobante, fechaComprobante: c.fechaComprobante, descuentoCentavos: c.descuentoCentavos, impuestosCentavos: c.impuestosCentavos,
+  condicionPago: c.condicionPago, plazoPagoDias: c.plazoPagoDias, vencimiento: c.vencimiento, importeFacturadoCentavos: c.importeFacturadoCentavos, ajustePrecioCentavos: c.ajustePrecioCentavos,
+});
+const CAMPOS_COMPROBANTE = ['comprobante', 'fechaComprobante', 'descuentoCentavos', 'impuestosCentavos', 'condicionPago', 'plazoPagoDias', 'vencimiento', 'importeFacturadoCentavos', 'ajustePrecioCentavos'] as const;
+const quitarIndefinidos = (d: DatosComprobante) => Object.fromEntries(CAMPOS_COMPROBANTE.filter((k) => d[k] !== undefined).map((k) => [k, d[k]])) as DatosComprobante;
+const resumenCompra = (c: ReturnType<typeof obtenerCompra>) => ({
+  estado: c.estado, fecha: c.fecha, fechaEsperada: c.fechaEsperada, notas: c.notas, comprobante: c.comprobante, descuentoCentavos: c.descuentoCentavos, impuestosCentavos: c.impuestosCentavos,
+  ajustePrecioCentavos: c.ajustePrecioCentavos, importeFacturadoCentavos: c.importeFacturadoCentavos, condicionPago: c.condicionPago, vencimiento: c.vencimiento,
+  totalConfirmadoCentavos: c.totalConfirmadoCentavos, aPagarCentavos: c.aPagarCentavos,
+  items: c.items.map((i) => ({ sku: i.sku, cantidad: i.cantidad, costoUnitarioCentavos: i.costoUnitarioCentavos, cantidadFacturada: i.cantidadFacturada })),
+  materiales: c.materiales.map((m) => ({ material: m.material, color: m.color, cantidadMil: m.cantidadMil, costoUnitarioCentavos: m.costoUnitarioCentavos, cantidadFacturadaMil: m.cantidadFacturadaMil })),
+});
 
 /** Unidades recibidas (en recepciones activas) por ítem del pedido. */
 function recibidoPorItem(db: DB, compraId: number) {
@@ -299,6 +427,8 @@ export function obtenerCompra(db: DB, id: number) {
   const lineasMat = db.select({ l: compraMateriales, codigo: materiales.codigo, material: materiales.nombre, unidad: materiales.unidad, color: colores.nombre }).from(compraMateriales)
     .innerJoin(materiales, eq(materiales.id, compraMateriales.materialId)).leftJoin(colores, eq(colores.id, compraMateriales.colorId)).where(eq(compraMateriales.compraId, id)).orderBy(compraMateriales.id).all()
     .map((r) => ({ ...r.l, codigo: r.codigo, material: r.material, color: r.color, unidad: r.unidad, recibidoMil: recibidoMat.get(r.l.id) ?? 0, pendienteMil: r.l.cantidadMil - (recibidoMat.get(r.l.id) ?? 0) }));
+  const refs = referenciasDePrecio(db, c.proveedorId, id, [...items.map((i) => ({ varianteId: i.varianteId })), ...lineasMat.map((l) => ({ materialId: l.materialId, colorId: l.colorId }))]);
+  const conRef = <T extends object>(x: T, k: string) => ({ ...x, ...(refs.get(k) ?? { anteriorCentavos: null, anteriorFecha: null, habitualCentavos: null }) });
   const recs = db.select().from(recepciones).where(eq(recepciones.compraId, id)).orderBy(desc(recepciones.id)).all();
   const recItems = recs.length ? db.select({ r: recepcionItems, sku: variantes.sku }).from(recepcionItems).innerJoin(variantes, eq(variantes.id, recepcionItems.varianteId)).where(inArray(recepcionItems.recepcionId, recs.map((r) => r.id))).all() : [];
   const recMats = recs.length ? db.select({ r: recepcionMateriales, material: materiales.nombre, unidad: materiales.unidad, color: colores.nombre }).from(recepcionMateriales).innerJoin(materiales, eq(materiales.id, recepcionMateriales.materialId)).leftJoin(colores, eq(colores.id, recepcionMateriales.colorId)).where(inArray(recepcionMateriales.recepcionId, recs.map((r) => r.id))).all() : [];
@@ -309,15 +439,20 @@ export function obtenerCompra(db: DB, id: number) {
   const pagos = db.select().from(pagosProveedor).where(and(eq(pagosProveedor.proveedorId, c.proveedorId), eq(pagosProveedor.estado, 'activo'))).all();
   const imps = imputacionesDePagos(db, pagos.map((p) => p.id)).filter((i) => i.compraId === id);
   const pagadoCentavos = imps.reduce((s, i) => s + i.importeCentavos, 0);
-  const aPagarCentavos = c.estado === 'anulada' || c.estado === 'borrador' ? 0 : recibidoCentavos - c.descuentoCentavos + c.impuestosCentavos;
+  const aPagarCentavos = deudaDeCompra(c, recibidoCentavos);
   return {
     ...c, proveedor: prov?.nombre ?? '—',
     estadoPedido: c.tipo === 'materiales'
       ? estadoPedido(c, lineasMat.reduce((s, i) => s + i.cantidadMil, 0), lineasMat.reduce((s, i) => s + i.recibidoMil, 0))
       : estadoPedido(c, items.reduce((s, i) => s + i.cantidad, 0), items.reduce((s, i) => s + i.recibido, 0)),
     vencimientoEfectivo: vencimientoDe(c, ultimaRecepcion),
-    items, materiales: lineasMat,
+    items: items.map((i) => conRef(i, clavePrecio({ varianteId: i.varianteId }))), materiales: lineasMat.map((l) => conRef(l, clavePrecio({ materialId: l.materialId, colorId: l.colorId }))),
     totalCentavos: items.reduce((s, i) => s + i.cantidad * i.costoUnitarioCentavos, 0) + lineasMat.reduce((s, i) => s + costoDeCantidad(i.costoUnitarioCentavos, i.cantidadMil), 0),
+    // Lo estimado al pedir y lo confirmado con el proveedor (con descuento, impuestos y diferencia de precio).
+    totalEstimadoCentavos: items.reduce((s, i) => s + (i.cantidadSolicitada ?? i.cantidad) * (i.costoEstimadoCentavos ?? i.costoUnitarioCentavos), 0)
+      + lineasMat.reduce((s, i) => s + costoDeCantidad(i.costoEstimadoCentavos ?? i.costoUnitarioCentavos, i.cantidadSolicitadaMil ?? i.cantidadMil), 0),
+    totalConfirmadoCentavos: items.reduce((s, i) => s + i.cantidad * i.costoUnitarioCentavos, 0) + lineasMat.reduce((s, i) => s + costoDeCantidad(i.costoUnitarioCentavos, i.cantidadMil), 0)
+      - c.descuentoCentavos + c.impuestosCentavos + c.ajustePrecioCentavos,
     recibidoCentavos, aPagarCentavos, pagadoCentavos, saldoCentavos: aPagarCentavos - pagadoCentavos,
     pagos: imps.map((i) => { const p = pagos.find((x) => x.id === i.pagoId)!; return { pagoId: p.id, numero: p.numero, fecha: p.fecha, importeCentavos: i.importeCentavos, totalPagoCentavos: p.importeCentavos }; }),
     adjuntos: listarAdjuntos(db, 'compra', id),
@@ -345,8 +480,7 @@ export function listarCompras(db: DB, f: { proveedorId?: number; estado?: string
   const imputado = imputadoPorCompra(db, filas.map((r) => r.c.id));
   return filas.map((r) => {
     const recibidoCentavos = Number(r.recibidoCentavos);
-    const vigente = r.c.estado === 'confirmada' || r.c.estado === 'cerrada';
-    const aPagarCentavos = vigente ? recibidoCentavos - r.c.descuentoCentavos + r.c.impuestosCentavos : 0;
+    const aPagarCentavos = deudaDeCompra(r.c, recibidoCentavos);
     const pagadoCentavos = imputado.get(r.c.id) ?? 0;
     return {
       ...r.c, proveedor: r.proveedor, pedidas: Number(r.pedidas), recibidas: Number(r.recibidas), totalCentavos: Number(r.totalCentavos), recibidoCentavos,
