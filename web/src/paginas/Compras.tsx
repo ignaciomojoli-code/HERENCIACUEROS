@@ -12,7 +12,9 @@ import { BuscadorVariante } from '../componentes/BuscadorVariante';
 import { fecha as fmtFecha, fechaHora, pesos } from '../formato';
 import { Adjuntos } from '../componentes/Adjuntos';
 import { CONDICIONES, CamposComprobante, comprobanteDe, comprobanteValido, comprobanteVacio, cuerpoComprobante, type CondicionPago } from '../componentes/Comprobante';
-import { cant, leerCant, useMateriales, type Unidad } from '../costos';
+import { cant, conColor, leerCant, useMateriales, type Unidad } from '../costos';
+import { SelectorColor } from '../componentes/SelectorColor';
+import { Abastecimiento } from './Abastecimiento';
 
 type Estado = 'borrador' | 'confirmada' | 'cerrada' | 'anulada';
 type TipoCompra = 'reventa' | 'confeccion' | 'materiales';
@@ -23,7 +25,7 @@ interface CompraResumen extends Comp {
   pedidas: number; recibidas: number; totalCentavos?: number; recibidoCentavos?: number; vencimientoEfectivo: string | null; aPagarCentavos?: number; pagadoCentavos?: number; saldoCentavos?: number;
 }
 interface ItemC { id: number; varianteId: number; sku: string; modelo: string; modeloId: number; color: string | null; talle: string | null; cantidad: number; costoUnitarioCentavos?: number; recibido: number; pendiente: number; notas: string | null }
-interface LineaMat { id: number; materialId: number; codigo: string; material: string; unidad: Unidad; cantidadMil: number; costoUnitarioCentavos?: number; recibidoMil: number; pendienteMil: number; notas: string | null }
+interface LineaMat { id: number; materialId: number; colorId: number | null; color: string | null; codigo: string; material: string; unidad: Unidad; cantidadMil: number; costoUnitarioCentavos?: number; recibidoMil: number; pendienteMil: number; notas: string | null }
 interface Recepcion {
   id: number; numero: number; fecha: string; comprobante: string | null; notas: string | null; estado: 'activa' | 'anulada'; motivoAnulacion: string | null;
   items: { id: number; sku: string; cantidad: number; costoUnitarioCentavos?: number }[]; materiales: { id: number; material: string; unidad: Unidad; cantidadMil: number; costoUnitarioCentavos?: number }[];
@@ -105,7 +107,7 @@ export function PaginaCompras() {
 }
 
 interface Linea { varianteId: number; sku: string; descripcion: string; cantidad: number; costoUnitarioCentavos: number | null }
-interface LineaMatForm { materialId: number; codigo: string; nombre: string; unidad: Unidad; texto: string; costoUnitarioCentavos: number | null }
+interface LineaMatForm { materialId: number; colorId?: number | null; porColor: boolean; codigo: string; nombre: string; unidad: Unidad; texto: string; costoUnitarioCentavos: number | null }
 
 export function PaginaCompraForm() {
   const { id } = useParams();
@@ -129,12 +131,12 @@ export function PaginaCompraForm() {
     setComp(comprobanteDe(c));
     setD({ proveedorId: c.proveedorId, tipo: c.tipo, fecha: c.fecha.slice(0, 10), fechaEsperada: c.fechaEsperada?.slice(0, 10) ?? '', notas: c.notas ?? '' });
     setLineas(c.items.map((i) => ({ varianteId: i.varianteId, sku: i.sku, descripcion: describirVariante(i), cantidad: i.cantidad, costoUnitarioCentavos: i.costoUnitarioCentavos ?? null })));
-    setMats(c.materiales.map((m) => ({ materialId: m.materialId, codigo: m.codigo, nombre: m.material, unidad: m.unidad, texto: cant(m.cantidadMil), costoUnitarioCentavos: m.costoUnitarioCentavos ?? null })));
+    setMats(c.materiales.map((m) => ({ materialId: m.materialId, colorId: m.colorId, porColor: m.colorId !== null || !!materiales.data?.find((x) => x.id === m.materialId)?.porColor, codigo: m.codigo, nombre: m.material, unidad: m.unidad, texto: cant(m.cantidadMil), costoUnitarioCentavos: m.costoUnitarioCentavos ?? null })));
   }, [existente.data]);
   const agregarMat = (id: number) => {
     const m = materiales.data?.find((x) => x.id === id);
-    if (!m || mats.some((x) => x.materialId === id)) return;
-    setMats([...mats, { materialId: m.id, codigo: m.codigo, nombre: m.nombre, unidad: m.unidad, texto: '', costoUnitarioCentavos: m.costoCentavos ?? null }]);
+    if (!m || (!m.porColor && mats.some((x) => x.materialId === id))) return;
+    setMats([...mats, { materialId: m.id, colorId: m.porColor ? undefined : null, porColor: m.porColor, codigo: m.codigo, nombre: m.nombre, unidad: m.unidad, texto: '', costoUnitarioCentavos: m.costoCentavos ?? null }]);
   };
   const agregar = (v: VarianteBuscada) => {
     const ya = lineas.find((l) => l.varianteId === v.varianteId);
@@ -146,7 +148,7 @@ export function PaginaCompraForm() {
     ? mats.reduce((s, l) => s + (Number.isFinite(milDe(l)) ? Math.round((milDe(l) * (l.costoUnitarioCentavos ?? 0)) / 1000) : 0), 0)
     : lineas.reduce((s, l) => s + l.cantidad * (l.costoUnitarioCentavos ?? 0), 0);
   const lineasOk = esMat
-    ? mats.length > 0 && mats.every((l) => milDe(l) > 0 && l.costoUnitarioCentavos != null)
+    ? mats.length > 0 && mats.every((l) => milDe(l) > 0 && l.costoUnitarioCentavos != null && l.colorId !== undefined)
     : lineas.length > 0 && lineas.every((l) => l.cantidad > 0 && l.costoUnitarioCentavos != null);
   const valido = d.proveedorId && lineasOk && comprobanteValido(comp);
   const guardar = useMutation({
@@ -154,7 +156,7 @@ export function PaginaCompraForm() {
       const cuerpo = {
         ...d, ...cuerpoComprobante(comp), fechaEsperada: d.fechaEsperada || null, notas: d.notas || null,
         items: esMat ? [] : lineas.map((l) => ({ varianteId: l.varianteId, cantidad: l.cantidad, costoUnitarioCentavos: l.costoUnitarioCentavos! })),
-        ...(esMat ? { materiales: mats.map((l) => ({ materialId: l.materialId, cantidadMil: milDe(l), costoUnitarioCentavos: l.costoUnitarioCentavos! })) } : {}),
+        ...(esMat ? { materiales: mats.map((l) => ({ materialId: l.materialId, colorId: l.colorId ?? null, cantidadMil: milDe(l), costoUnitarioCentavos: l.costoUnitarioCentavos! })) } : {}),
       };
       if (editando) return api.put(`/compras/${id}`, cuerpo).then(async () => { if (confirmar) await api.post(`/compras/${id}/estado`, { accion: 'confirmar' }); return { id: Number(id) }; });
       return api.post<{ id: number }>('/compras', { ...cuerpo, confirmar }, true);
@@ -190,7 +192,7 @@ export function PaginaCompraForm() {
           <Campo etiqueta="Agregar material">
             <select className="entrada" value="" onChange={(e) => agregarMat(Number(e.target.value))}>
               <option value="">Elegí…</option>
-              {materiales.data?.filter((m) => m.tipo === 'material' && m.activo && !mats.some((x) => x.materialId === m.id)).map((m) => <option key={m.id} value={m.id}>{m.codigo} · {m.nombre}{m.proveedor ? ` (${m.proveedor})` : ''}</option>)}
+              {materiales.data?.filter((m) => m.tipo === 'material' && m.activo && (m.porColor || !mats.some((x) => x.materialId === m.id))).map((m) => <option key={m.id} value={m.id}>{m.codigo} · {m.nombre}{m.proveedor ? ` (${m.proveedor})` : ''}</option>)}
             </select>
           </Campo>
           <div className="mt-4 overflow-x-auto">
@@ -200,8 +202,8 @@ export function PaginaCompraForm() {
                 {mats.map((l, i) => {
                   const mil = milDe(l);
                   return (
-                    <tr key={l.materialId}>
-                      <td><b>{l.codigo}</b><div className="text-xs text-carbon/55">{l.nombre}</div></td>
+                    <tr key={i}>
+                      <td><b>{l.codigo}</b><div className="text-xs text-carbon/55">{l.nombre}</div>{l.porColor && <SelectorColor className={`entrada mt-1 py-1 text-sm ${l.colorId === undefined ? 'border-bordo' : ''}`} valor={l.colorId} onCambio={(c) => setMats(mats.map((x, j) => (j === i ? { ...x, colorId: c } : x)))} />}</td>
                       <td><div className="flex items-center gap-1"><input className={`entrada py-1 text-right ${l.texto && !(mil > 0) ? 'border-bordo' : ''}`} inputMode="decimal" placeholder="0" value={l.texto} onChange={(e) => setMats(mats.map((x, j) => (j === i ? { ...x, texto: e.target.value } : x)))} /><span className="text-xs text-carbon/55">{l.unidad}</span></div></td>
                       <td><Importe valor={l.costoUnitarioCentavos} onCambio={(c) => setMats(mats.map((x, j) => (j === i ? { ...x, costoUnitarioCentavos: c } : x)))} /></td>
                       <td className="num">{mil > 0 ? pesos(Math.round((mil * (l.costoUnitarioCentavos ?? 0)) / 1000)) : '—'}</td>
@@ -323,7 +325,7 @@ export function PaginaCompra() {
             <tbody>
               {k.materiales.map((m) => (
                 <tr key={m.id}>
-                  <td><b>{m.codigo}</b><div className="text-xs text-carbon/55">{m.material}</div></td>
+                  <td><b>{m.codigo}</b><div className="text-xs text-carbon/55">{conColor(m.material, m.color)}</div></td>
                   <td className="num">{cant(m.cantidadMil)} {m.unidad}</td><td className="num">{cant(m.recibidoMil)}</td>
                   <td className={`num ${m.pendienteMil > 0 && k.estado === 'confirmada' ? 'font-medium text-conac' : 'text-carbon/40'}`}>{cant(m.pendienteMil)}</td>
                   {verCostos && <td className="num">{pesos(m.costoUnitarioCentavos)}</td>}
@@ -353,7 +355,7 @@ export function PaginaCompra() {
         </table>
       </div>
       )}
-      {k.tipo === 'confeccion' && puede('materiales') && <MaterialesDelPedido compraId={k.id} abierto={k.estado === 'borrador' || k.estado === 'confirmada'} />}
+      {k.tipo === 'confeccion' && puede('materiales') && <Abastecimiento compraId={k.id} />}
       <h2 className="mb-3 mt-8 text-xl font-bold">Recepciones</h2>
       {!k.recepciones.length ? <Vacio>Todavía no entregó nada.</Vacio> : (
         <div className="space-y-3">
@@ -450,35 +452,6 @@ function ModalRecepcion({ compra, onCerrar, onListo }: { compra: Compra; onCerra
   );
 }
 
-interface MatPedido { materialId: number; nombre: string; unidad: Unidad; pendienteMil: number; entregadoMil: number; enTallerMil: number; faltaEntregarMil: number }
-/** Orden de producción: el material que necesita el taller para este pedido, lo que se le dio y lo que tiene. */
-function MaterialesDelPedido({ compraId, abierto }: { compraId: number; abierto: boolean }) {
-  const q = useQuery({ queryKey: ['custodia-pedido', compraId], queryFn: () => api.get<{ materiales: MatPedido[]; sinReceta: string[]; entregas: { id: number; numero: number; fecha: string; origen: string; destino: string; estado: string }[] } | null>(`/custodia/pedidos/${compraId}`) });
-  if (!q.data) return null;
-  const d = q.data;
-  return (
-    <div className="mt-6">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-xl font-bold">Material para este pedido</h2>
-        {abierto && <Link className="btn-secundario btn-chico" to={`/produccion?pedido=${compraId}`}>Entregar material</Link>}
-      </div>
-      {d.sinReceta.length > 0 && <p className="mb-2 text-sm text-bordo">Sin receta: {d.sinReceta.join(', ')}.</p>}
-      {!d.materiales.length ? <Vacio>Sin materiales por receta.</Vacio> : (
-        <div className="tarjeta overflow-x-auto">
-          <table className="tabla">
-            <thead><tr><th>Material</th><th className="num">Necesita para lo que falta</th><th className="num">Se le dio para este pedido</th><th className="num">Tiene hoy</th><th className="num">Falta entregarle</th></tr></thead>
-            <tbody>{d.materiales.map((m) => (
-              <tr key={m.materialId}><td>{m.nombre}</td><td className="num">{cant(m.pendienteMil)} {m.unidad}</td><td className="num">{cant(m.entregadoMil)}</td><td className="num">{cant(m.enTallerMil)}</td><td className={`num ${m.faltaEntregarMil > 0 ? 'font-medium text-conac' : 'text-carbon/40'}`}>{cant(m.faltaEntregarMil)}</td></tr>
-            ))}</tbody>
-          </table>
-        </div>
-      )}
-      {d.entregas.length > 0 && <p className="mt-2 text-sm text-carbon/60">Entregas: {d.entregas.map((e) => `E-${e.numero} (${fmtFecha(e.fecha + 'T12:00')}, ${e.origen} → ${e.destino})`).join(' · ')}</p>}
-      <p className="mt-1 text-xs text-carbon/50">Cuando el taller entrega prendas, el material se descuenta primero de lo que tiene en su poder y lo que falte, del local.</p>
-    </div>
-  );
-}
-
 function ModalRecepcionMateriales({ compra, onCerrar, onListo }: { compra: Compra; onCerrar: () => void; onListo: () => void }) {
   const { puede } = useSesion();
   const lineas = compra.materiales.filter((m) => m.pendienteMil > 0);
@@ -511,7 +484,7 @@ function ModalRecepcionMateriales({ compra, onCerrar, onListo }: { compra: Compr
             <tbody>
               {lineas.map((m) => (
                 <tr key={m.id}>
-                  <td><b>{m.codigo}</b><div className="text-xs text-carbon/55">{m.material}</div></td>
+                  <td><b>{m.codigo}</b><div className="text-xs text-carbon/55">{conColor(m.material, m.color)}</div></td>
                   <td className="num">{cant(m.pendienteMil)} {m.unidad}</td>
                   <td><input className={`entrada py-1 text-right ${errores.includes(m) ? 'border-bordo' : ''}`} inputMode="decimal" value={cants[m.id] ?? ''} onChange={(e) => setCants({ ...cants, [m.id]: e.target.value })} /></td>
                   {editaCosto && <td><Importe valor={costos[m.id] ?? m.costoUnitarioCentavos ?? null} onCambio={(c) => setCostos({ ...costos, [m.id]: c })} /></td>}

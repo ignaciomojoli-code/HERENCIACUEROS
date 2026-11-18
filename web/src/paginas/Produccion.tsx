@@ -7,14 +7,15 @@ import { useSesion } from '../sesion';
 import { Campo, Cargando, Confirmar, Encabezado, ErrorCarga, Modal, Vacio, avisar, avisarError } from '../componentes/ui';
 import { fecha as fmtFecha } from '../formato';
 import { hoy } from '../plata';
-import { cant, leerCant, useMateriales, type Unidad } from '../costos';
+import { cant, conColor, leerCant, useMateriales, type Unidad } from '../costos';
+import { SelectorColor } from '../componentes/SelectorColor';
 
 interface Lugar { ubicacionProveedorId: number | null; nombre: string; rol: string | null }
-interface MatPedido { materialId: number; codigo: string; nombre: string; unidad: Unidad; totalMil: number; pendienteMil: number; entregadoMil: number; enTallerMil: number; faltaEntregarMil: number }
+interface MatPedido { clave: string; materialId: number; colorId: number | null; color: string | null; porColor: boolean; codigo: string; nombre: string; unidad: Unidad; totalMil: number; pendienteMil: number; entregadoMil: number; enTallerMil: number; faltaEntregarMil: number }
 interface EnCurso { compraId: number; numero: number; estado: string; fecha: string; fechaEsperada: string | null; taller: string; tallerId: number; pedidas: number; recibidas: number; materiales: MatPedido[]; sinReceta: string[]; faltaEntregar: number }
 interface Custodia { lugares: { ubicacionProveedorId: number; ubicacion: string }[]; materiales: { materialId: number; codigo: string; nombre: string; unidad: Unidad; localMil: number; otros: { ubicacionProveedorId: number; ubicacion: string; cantidadMil: number }[]; totalMil: number }[] }
-interface Traslado { id: number; numero: number; fecha: string; origen: string; destino: string; compraId: number | null; compraNumero: number | null; notas: string | null; estado: 'activo' | 'anulado'; motivoAnulacion: string | null; items: { materialId: number; material: string; unidad: Unidad; cantidadMil: number }[] }
-export interface Prellenado { origen: number | null; destino: number | null; compraId: number | null; items: { materialId: number; texto: string }[] }
+interface Traslado { id: number; numero: number; fecha: string; origen: string; destino: string; compraId: number | null; compraNumero: number | null; notas: string | null; estado: 'activo' | 'anulado'; motivoAnulacion: string | null; items: { materialId: number; colorId: number | null; color: string | null; material: string; unidad: Unidad; cantidadMil: number }[] }
+export interface Prellenado { origen: number | null; destino: number | null; compraId: number | null; items: { materialId: number; colorId?: number | null; texto: string }[] }
 
 /** Colores validados (ver dataviz): el local siempre conac; los demás lugares en orden fijo; del tercero en adelante se juntan en "Otros". */
 const COLORES = ['#A65A2E', '#2F6F9F', '#7A8C2E'];
@@ -33,7 +34,7 @@ export function PaginaProduccion() {
   const inv = () => ['produccion', 'custodia', 'traslados', 'materiales', 'material', 'reposicion-materiales', 'custodia-pedido'].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
   const anu = useMutation({ mutationFn: () => api.post(`/traslados/${anular!.id}/anular`, { motivo }), onSuccess: () => { avisar('Entrega anulada'); setAnular(null); setMotivo(''); inv(); }, onError: avisarError });
   const puedeEntregar = puede('materiales', 'modificar');
-  const faltante = (p: EnCurso): Prellenado => ({ origen: null, destino: p.tallerId, compraId: p.compraId, items: p.materiales.filter((m) => m.faltaEntregarMil > 0).map((m) => ({ materialId: m.materialId, texto: cant(m.faltaEntregarMil) })) });
+  const faltante = (p: EnCurso): Prellenado => ({ origen: null, destino: p.tallerId, compraId: p.compraId, items: p.materiales.filter((m) => m.faltaEntregarMil > 0).map((m) => ({ materialId: m.materialId, colorId: m.colorId, texto: cant(m.faltaEntregarMil) })) });
   if (enCurso.isLoading || cust.isLoading) return <Cargando />;
   if (enCurso.isError) return <ErrorCarga error={enCurso.error} />;
   if (cust.isError) return <ErrorCarga error={cust.error} />;
@@ -62,8 +63,8 @@ export function PaginaProduccion() {
                 <table className="tabla">
                   <thead><tr><th>Material</th><th className="num">Necesita para lo que falta</th><th className="num">Le diste para este pedido</th><th className="num">Tiene hoy</th><th className="num">Falta entregarle</th></tr></thead>
                   <tbody>{p.materiales.map((m) => (
-                    <tr key={m.materialId}>
-                      <td>{m.nombre}</td><td className="num">{cant(m.pendienteMil)} {m.unidad}</td><td className="num">{cant(m.entregadoMil)}</td>
+                    <tr key={m.clave}>
+                      <td>{conColor(m.nombre, m.color)}</td><td className="num">{cant(m.pendienteMil)} {m.unidad}</td><td className="num">{cant(m.entregadoMil)}</td>
                       <td className={`num ${m.enTallerMil < 0 ? 'text-bordo' : ''}`}>{cant(m.enTallerMil)}</td>
                       <td className={`num ${m.faltaEntregarMil > 0 ? 'font-medium text-conac' : 'text-carbon/40'}`}>{cant(m.faltaEntregarMil)}</td>
                     </tr>
@@ -87,7 +88,7 @@ export function PaginaProduccion() {
               <tr key={t.id} className={t.estado === 'anulado' ? 'text-carbon/40' : ''}>
                 <td className="font-medium">E-{t.numero}</td><td>{fmtFecha(t.fecha + 'T12:00')}</td>
                 <td className="whitespace-nowrap">{t.origen} <ArrowRight className="inline h-3 w-3" /> {t.destino}{t.estado === 'anulado' && <div className="text-xs">Anulada: {t.motivoAnulacion}</div>}</td>
-                <td className="text-sm">{t.items.map((i) => `${i.material} ${cant(i.cantidadMil)} ${i.unidad}`).join(' · ')}{t.notas && <div className="text-xs text-carbon/50">{t.notas}</div>}</td>
+                <td className="text-sm">{t.items.map((i) => `${conColor(i.material, i.color)} ${cant(i.cantidadMil)} ${i.unidad}`).join(' · ')}{t.notas && <div className="text-xs text-carbon/50">{t.notas}</div>}</td>
                 <td className="hidden md:table-cell">{t.compraId ? <Link className="underline" to={`/compras/${t.compraId}`}>P-{t.compraNumero}</Link> : '—'}</td>
                 <td className="text-right">{t.estado === 'activo' && puede('materiales', 'anular') && <button className="btn-secundario btn-chico" onClick={() => setAnular(t)}>Anular</button>}</td>
               </tr>
@@ -166,10 +167,11 @@ export function ModalEntrega({ inicial, pedidos, onCerrar, onListo }: { inicial:
   const [items, setItems] = useState(inicial.items);
   const valor = (x: number | null) => (x === null ? '' : String(x));
   const leer = (v: string) => (v === '' ? null : Number(v));
-  const malos = items.filter((i) => !(leerCant(i.texto) > 0));
+  const sinColor = items.filter((i) => mats.data?.find((m) => m.id === i.materialId)?.porColor && i.colorId === undefined);
+  const malos = [...items.filter((i) => !(leerCant(i.texto) > 0)), ...sinColor];
   const pedidosDelDestino = pedidos.filter((p) => p.tallerId === d.destino || p.tallerId === d.origen);
   const g = useMutation({
-    mutationFn: () => api.post<{ numero: number; avisos: string[] }>('/traslados', { fecha: d.fecha, origenProveedorId: d.origen, destinoProveedorId: d.destino, compraId: d.compraId, notas: d.notas || null, items: items.map((i) => ({ materialId: i.materialId, cantidadMil: leerCant(i.texto) })) }, true),
+    mutationFn: () => api.post<{ numero: number; avisos: string[] }>('/traslados', { fecha: d.fecha, origenProveedorId: d.origen, destinoProveedorId: d.destino, compraId: d.compraId, notas: d.notas || null, items: items.map((i) => ({ materialId: i.materialId, colorId: i.colorId ?? null, cantidadMil: leerCant(i.texto) })) }, true),
     onSuccess: (r) => { avisar(`Entrega E-${r.numero} registrada${r.avisos.length ? `. Ojo: ${r.avisos.join('; ')}` : ''}`); onListo(); onCerrar(); }, onError: avisarError,
   });
   const nombreMat = (id: number) => mats.data?.find((m) => m.id === id);
@@ -194,8 +196,8 @@ export function ModalEntrega({ inicial, pedidos, onCerrar, onListo }: { inicial:
             <thead><tr><th>Material</th><th className="num w-36">Cantidad</th><th /></tr></thead>
             <tbody>
               {items.map((i, k) => (
-                <tr key={i.materialId}>
-                  <td>{nombreMat(i.materialId)?.nombre ?? '…'}</td>
+                <tr key={k}>
+                  <td>{nombreMat(i.materialId)?.nombre ?? '…'}{nombreMat(i.materialId)?.porColor && <SelectorColor className={`entrada mt-1 py-1 text-sm ${i.colorId === undefined ? 'border-bordo' : ''}`} valor={i.colorId} onCambio={(c) => setItems(items.map((x, j) => (j === k ? { ...x, colorId: c } : x)))} />}</td>
                   <td><div className="flex items-center gap-1"><input className={`entrada py-1 text-right ${!(leerCant(i.texto) > 0) ? 'border-bordo' : ''}`} inputMode="decimal" value={i.texto} onChange={(e) => setItems(items.map((x, j) => (j === k ? { ...x, texto: e.target.value } : x)))} /><span className="text-xs text-carbon/55">{nombreMat(i.materialId)?.unidad}</span></div></td>
                   <td className="text-right"><button type="button" className="p-1 text-carbon/40 hover:text-bordo" aria-label="Quitar" onClick={() => setItems(items.filter((_, j) => j !== k))}><Trash2 className="h-4 w-4" /></button></td>
                 </tr>
@@ -206,7 +208,7 @@ export function ModalEntrega({ inicial, pedidos, onCerrar, onListo }: { inicial:
         </div>
         <Campo etiqueta="Agregar material">
           <select className="entrada" value="" onChange={(e) => { const id = Number(e.target.value); if (id) setItems([...items, { materialId: id, texto: '' }]); }}>
-            <option value="">Elegí…</option>{mats.data?.filter((m) => m.tipo === 'material' && m.activo && !items.some((i) => i.materialId === m.id)).map((m) => <option key={m.id} value={m.id}>{m.codigo} · {m.nombre}</option>)}
+            <option value="">Elegí…</option>{mats.data?.filter((m) => m.tipo === 'material' && m.activo && (m.porColor || !items.some((i) => i.materialId === m.id))).map((m) => <option key={m.id} value={m.id}>{m.codigo} · {m.nombre}</option>)}
           </select>
         </Campo>
         <Campo etiqueta="Notas (opcional)"><input className="entrada" value={d.notas} onChange={(e) => setD({ ...d, notas: e.target.value })} placeholder="Ej.: lo llevó Mojo" /></Campo>

@@ -25,7 +25,7 @@ const esquemaCompra = z.object({
   proveedorId: z.number().int(), tipo: z.enum(['reventa', 'confeccion', 'materiales']), fecha, fechaEsperada: fecha.nullable().optional(),
   notas: z.string().nullable().optional(),
   items: z.array(z.object({ varianteId: z.number().int(), cantidad: z.number().int(), costoUnitarioCentavos: z.number().int(), notas: z.string().nullable().optional() })).default([]),
-  materiales: z.array(z.object({ materialId: z.number().int(), cantidadMil: z.number().int(), costoUnitarioCentavos: z.number().int(), notas: z.string().nullable().optional() })).optional(),
+  materiales: z.array(z.object({ materialId: z.number().int(), colorId: z.number().int().nullable().optional(), cantidadMil: z.number().int(), costoUnitarioCentavos: z.number().int(), notas: z.string().nullable().optional() })).optional(),
 });
 /** Los importes de compras son costos: se quitan para los roles que no los pueden ver. */
 const IMPORTES = /Centavos$/;

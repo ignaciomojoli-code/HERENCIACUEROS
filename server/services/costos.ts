@@ -6,7 +6,7 @@
  * se muestran primero y se aplican solo lo que el usuario elige (con motivo y permiso).
  */
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { categorias, historialCostosMaterial, materiales, modelos, movimientosMaterial, precios, proveedores, recetaItems, talles, variantes } from '../db/schema.js';
+import { categorias, colores, historialCostosMaterial, materiales, modelos, movimientosMaterial, precios, proveedores, recetaItems, talles, variantes } from '../db/schema.js';
 import type { DB } from '../db/index.js';
 import { ahora } from './tiempo.js';
 import { auditar } from './auditoria.js';
@@ -29,19 +29,51 @@ export function stockMateriales(db: DB, ids?: number[]) {
   return new Map(filas.map((f) => [f.m, Number(f.n)]));
 }
 
-/** Stock de un material en un lugar (null = el local). */
-export function stockEn(db: DB, materialId: number, ubicacionProveedorId: number | null) {
-  const r = db.select({ n: sql<number>`coalesce(sum(${movimientosMaterial.cantidadMil}), 0)` }).from(movimientosMaterial)
-    .where(and(eq(movimientosMaterial.materialId, materialId), ubicacionProveedorId === null ? isNull(movimientosMaterial.ubicacionProveedorId) : eq(movimientosMaterial.ubicacionProveedorId, ubicacionProveedorId))).get();
+/**
+ * Stock de un material en un lugar (null = el local). Con colorId (también null = sin color) cuenta solo ese color;
+ * sin pasarlo (undefined) suma todos los colores.
+ */
+export function stockEn(db: DB, materialId: number, ubicacionProveedorId: number | null, colorId?: number | null) {
+  const conds = [eq(movimientosMaterial.materialId, materialId), ubicacionProveedorId === null ? isNull(movimientosMaterial.ubicacionProveedorId) : eq(movimientosMaterial.ubicacionProveedorId, ubicacionProveedorId)];
+  if (colorId !== undefined) conds.push(colorId === null ? isNull(movimientosMaterial.colorId) : eq(movimientosMaterial.colorId, colorId));
+  const r = db.select({ n: sql<number>`coalesce(sum(${movimientosMaterial.cantidadMil}), 0)` }).from(movimientosMaterial).where(and(...conds)).get();
   return Number(r?.n ?? 0);
+}
+
+/**
+ * Color de un movimiento de material: los materiales que no van por color siempre quedan sin color (null); los que sí,
+ * llevan el color indicado (null = "sin color", por ejemplo lo anterior a controlarlo por color). Valida que exista.
+ */
+export function colorDeMovimiento(db: DB, m: { porColor: boolean }, colorId: number | null | undefined): number | null {
+  if (!m.porColor || colorId == null) return null;
+  if (!db.select({ id: colores.id }).from(colores).where(eq(colores.id, colorId)).get()) throw noEncontrado('El color');
+  return colorId;
+}
+
+/** Para filtrar stock: undefined (todos los colores) si el material no va por color; si va, el color (null = sin color). */
+export const filtroColor = (m: { porColor: boolean }, colorId: number | null | undefined) => (m.porColor ? colorId ?? null : undefined);
+
+/** Clave material + color (los que no van por color usan siempre color null). */
+export const claveMaterial = (materialId: number, colorId: number | null) => `${materialId}|${colorId ?? ''}`;
+
+export const nombresColores = (db: DB) => new Map(db.select({ id: colores.id, nombre: colores.nombre }).from(colores).all().map((c) => [c.id, c.nombre]));
+
+/** Stock por material y color (todos los lugares), solo de los materiales que van por color. */
+export function stockPorColor(db: DB) {
+  return db.all<{ materialId: number; colorId: number | null; n: number }>(sql`
+    select m.material_id as materialId, m.color_id as colorId, sum(m.cantidad_mil) as n from movimientos_material m join materiales x on x.id = m.material_id
+    where x.por_color = 1 group by m.material_id, m.color_id`).map((r) => ({ ...r, n: Number(r.n) }));
 }
 
 export function listarMateriales(db: DB) {
   const stock = stockMateriales(db);
+  const porColor = stockPorColor(db);
+  const colores = nombresColores(db);
   const usos = new Map(db.select({ m: recetaItems.materialId, n: sql<number>`count(distinct ${recetaItems.modeloId})` }).from(recetaItems).groupBy(recetaItems.materialId).all().map((u) => [u.m, Number(u.n)]));
   return db.select({ m: materiales, proveedor: proveedores.nombre }).from(materiales).leftJoin(proveedores, eq(proveedores.id, materiales.proveedorId))
     .orderBy(asc(materiales.codigo)).all()
-    .map((r) => ({ ...r.m, proveedor: r.proveedor, stockMil: r.m.tipo === 'mano_obra' ? null : stock.get(r.m.id) ?? 0, modelosQueLoUsan: usos.get(r.m.id) ?? 0 }));
+    .map((r) => ({ ...r.m, proveedor: r.proveedor, stockMil: r.m.tipo === 'mano_obra' ? null : stock.get(r.m.id) ?? 0, modelosQueLoUsan: usos.get(r.m.id) ?? 0,
+      stockColores: r.m.porColor ? porColor.filter((c) => c.materialId === r.m.id && c.n !== 0).map((c) => ({ colorId: c.colorId, color: c.colorId ? colores.get(c.colorId) ?? '—' : 'Sin color', cantidadMil: c.n })) : [] }));
 }
 
 export function materialOError(db: DB, id: number) {
@@ -50,7 +82,7 @@ export function materialOError(db: DB, id: number) {
   return m;
 }
 
-export interface DatosMaterial { codigo: string; nombre: string; unidad: Material['unidad']; tipo: Material['tipo']; costoCentavos: number | null; proveedorId: number | null; stockMinimoMil?: number | null; notas?: string | null; activo?: boolean; clasificacion?: Material['clasificacion'] }
+export interface DatosMaterial { codigo: string; nombre: string; unidad: Material['unidad']; tipo: Material['tipo']; costoCentavos: number | null; proveedorId: number | null; stockMinimoMil?: number | null; notas?: string | null; activo?: boolean; clasificacion?: Material['clasificacion']; porColor?: boolean }
 
 export function guardarMaterial(ctx: Ctx, id: number | null, d: DatosMaterial, motivo?: string) {
   const codigo = d.codigo?.trim().toUpperCase();
@@ -60,7 +92,7 @@ export function guardarMaterial(ctx: Ctx, id: number | null, d: DatosMaterial, m
   if (rep && rep.id !== id) throw new ErrorNegocio(`Ya existe el material ${codigo}`);
   const t = ahora();
   const valores = { codigo, nombre: d.nombre.trim(), unidad: d.unidad, tipo: d.tipo, costoCentavos: d.costoCentavos, proveedorId: d.proveedorId, stockMinimoMil: d.stockMinimoMil ?? null, notas: d.notas?.trim() || null, actualizadoEn: t,
-    ...(d.clasificacion !== undefined ? { clasificacion: d.clasificacion } : {}) };
+    ...(d.clasificacion !== undefined ? { clasificacion: d.clasificacion } : {}), ...(d.porColor !== undefined ? { porColor: d.tipo === 'material' && d.porColor } : {}) };
   if (id === null) {
     const m = ctx.db.insert(materiales).values({ ...valores, activo: d.activo ?? true, creadoEn: t }).returning().get();
     if (m.costoCentavos !== null) ctx.db.insert(historialCostosMaterial).values({ materialId: m.id, anteriorCentavos: null, nuevoCentavos: m.costoCentavos, fecha: t, usuarioId: ctx.usuarioId, origen: 'alta' }).run();
@@ -84,7 +116,7 @@ export { aMil };
  * Compra de material: entra stock y el costo se actualiza por promedio ponderado. Si se indica el proveedor,
  * el importe suma a su cuenta corriente (se paga desde Pagos a proveedores).
  */
-export function ingresarMaterial(ctx: Ctx, d: { materialId: number; fecha: string; cantidadMil: number; costoUnitarioCentavos: number; proveedorId?: number | null; comprobante?: string | null; notas?: string | null }) {
+export function ingresarMaterial(ctx: Ctx, d: { materialId: number; colorId?: number | null; fecha: string; cantidadMil: number; costoUnitarioCentavos: number; proveedorId?: number | null; comprobante?: string | null; notas?: string | null }) {
   if (d.proveedorId && !ctx.db.select({ id: proveedores.id }).from(proveedores).where(eq(proveedores.id, d.proveedorId)).get()) throw noEncontrado('El proveedor');
   const r = entradaMaterial(ctx, { ...d, motivo: d.notas });
   auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'ingreso_material', entidad: 'material', entidadId: d.materialId, despues: { ...d, costoNuevo: r.costoNuevoCentavos } });
@@ -96,7 +128,7 @@ export function ingresarMaterial(ctx: Ctx, d: { materialId: number; fecha: strin
  * Con proveedorId el importe suma directo a su cuenta corriente (ingreso suelto). Las recepciones de un pedido de
  * materiales NO llevan proveedorId: su deuda sale de la recepción del pedido (así no se cuenta dos veces).
  */
-export function entradaMaterial(ctx: Ctx, d: { materialId: number; fecha: string; cantidadMil: number; costoUnitarioCentavos: number; proveedorId?: number | null; comprobante?: string | null; motivo?: string | null; refTipo?: string; refId?: number }) {
+export function entradaMaterial(ctx: Ctx, d: { materialId: number; colorId?: number | null; fecha: string; cantidadMil: number; costoUnitarioCentavos: number; proveedorId?: number | null; comprobante?: string | null; motivo?: string | null; refTipo?: string; refId?: number }) {
   const m = materialOError(ctx.db, d.materialId);
   if (m.tipo === 'mano_obra') throw new ErrorNegocio('La mano de obra no tiene stock: se paga con el pedido al taller');
   if (!Number.isInteger(d.cantidadMil) || d.cantidadMil <= 0) throw new ErrorNegocio('La cantidad tiene que ser mayor a cero');
@@ -104,7 +136,7 @@ export function entradaMaterial(ctx: Ctx, d: { materialId: number; fecha: string
   const stock = Math.max(0, stockMateriales(ctx.db, [m.id]).get(m.id) ?? 0);
   const t = ahora();
   const mov = ctx.db.insert(movimientosMaterial).values({
-    fecha: d.fecha, materialId: m.id, cantidadMil: d.cantidadMil, tipo: 'compra', costoUnitarioCentavos: d.costoUnitarioCentavos, proveedorId: d.proveedorId ?? null,
+    fecha: d.fecha, materialId: m.id, colorId: colorDeMovimiento(ctx.db, m, d.colorId), cantidadMil: d.cantidadMil, tipo: 'compra', costoUnitarioCentavos: d.costoUnitarioCentavos, proveedorId: d.proveedorId ?? null,
     comprobante: d.comprobante?.trim() || null, motivo: d.motivo?.trim() || null, refTipo: d.refTipo ?? null, refId: d.refId ?? null, usuarioId: ctx.usuarioId, creadoEn: t,
   }).returning().get();
   const nuevo = m.costoCentavos === null || stock <= 0 ? d.costoUnitarioCentavos : Math.round((stock * m.costoCentavos + d.cantidadMil * d.costoUnitarioCentavos) / (stock + d.cantidadMil));
@@ -123,7 +155,7 @@ export function revertirEntradaMaterial(ctx: Ctx, movId: number, motivo: string)
   const m = ctx.db.select().from(movimientosMaterial).where(eq(movimientosMaterial.id, movId)).get();
   if (!m) throw noEncontrado('El movimiento');
   const t = ahora();
-  ctx.db.insert(movimientosMaterial).values({ fecha: m.fecha, materialId: m.materialId, cantidadMil: -m.cantidadMil, tipo: 'anulacion', costoUnitarioCentavos: m.costoUnitarioCentavos, ubicacionProveedorId: m.ubicacionProveedorId, refTipo: m.refTipo, refId: m.refId, anulaId: m.id, motivo, usuarioId: ctx.usuarioId, creadoEn: t }).run();
+  ctx.db.insert(movimientosMaterial).values({ fecha: m.fecha, materialId: m.materialId, colorId: m.colorId, cantidadMil: -m.cantidadMil, tipo: 'anulacion', costoUnitarioCentavos: m.costoUnitarioCentavos, ubicacionProveedorId: m.ubicacionProveedorId, refTipo: m.refTipo, refId: m.refId, anulaId: m.id, motivo, usuarioId: ctx.usuarioId, creadoEn: t }).run();
   const h = ctx.db.select().from(historialCostosMaterial).where(and(eq(historialCostosMaterial.refTipo, 'mov_material'), eq(historialCostosMaterial.refId, movId))).get();
   if (!h) return null;
   const ultimo = ctx.db.select().from(historialCostosMaterial).where(eq(historialCostosMaterial.materialId, m.materialId)).orderBy(desc(historialCostosMaterial.id)).limit(1).get()!;
@@ -136,13 +168,13 @@ export function revertirEntradaMaterial(ctx: Ctx, movId: number, motivo: string)
   return mat.nombre;
 }
 
-export function ajustarMaterial(ctx: Ctx, d: { materialId: number; fecha: string; cantidadMil: number; motivo: string; tipo?: 'ajuste' | 'inicial'; ubicacionProveedorId?: number | null }) {
+export function ajustarMaterial(ctx: Ctx, d: { materialId: number; colorId?: number | null; fecha: string; cantidadMil: number; motivo: string; tipo?: 'ajuste' | 'inicial'; ubicacionProveedorId?: number | null }) {
   const m = materialOError(ctx.db, d.materialId);
   if (m.tipo === 'mano_obra') throw new ErrorNegocio('La mano de obra no tiene stock');
   if (!d.motivo?.trim()) throw new ErrorNegocio('Indicá el motivo');
   if (!Number.isInteger(d.cantidadMil) || d.cantidadMil === 0) throw new ErrorNegocio('La cantidad tiene que ser distinta de cero');
   validarUbicacion(ctx.db, d.ubicacionProveedorId ?? null);
-  const mov = ctx.db.insert(movimientosMaterial).values({ fecha: d.fecha, materialId: m.id, cantidadMil: d.cantidadMil, tipo: d.tipo ?? 'ajuste', costoUnitarioCentavos: m.costoCentavos, motivo: d.motivo.trim(), ubicacionProveedorId: d.ubicacionProveedorId ?? null, usuarioId: ctx.usuarioId, creadoEn: ahora() }).returning().get();
+  const mov = ctx.db.insert(movimientosMaterial).values({ fecha: d.fecha, materialId: m.id, colorId: colorDeMovimiento(ctx.db, m, d.colorId), cantidadMil: d.cantidadMil, tipo: d.tipo ?? 'ajuste', costoUnitarioCentavos: m.costoCentavos, motivo: d.motivo.trim(), ubicacionProveedorId: d.ubicacionProveedorId ?? null, usuarioId: ctx.usuarioId, creadoEn: ahora() }).returning().get();
   auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'ajuste_material', entidad: 'material', entidadId: m.id, despues: d });
   return mov;
 }
@@ -151,18 +183,20 @@ export function ajustarMaterial(ctx: Ctx, d: { materialId: number; fecha: string
  * Conteo físico: "hoy hay X". Se agrega la diferencia contra el libro (X − stock actual), así lo ya consumido por el
  * taller no se pierde ni se cuenta dos veces. El primer conteo de un material queda como "Stock inicial".
  */
-export function contarMaterial(ctx: Ctx, d: { materialId: number; fecha: string; contadoMil: number; motivo?: string | null; ubicacionProveedorId?: number | null }) {
+export function contarMaterial(ctx: Ctx, d: { materialId: number; colorId?: number | null; fecha: string; contadoMil: number; motivo?: string | null; ubicacionProveedorId?: number | null }) {
   const m = materialOError(ctx.db, d.materialId);
   if (m.tipo === 'mano_obra') throw new ErrorNegocio('La mano de obra no tiene stock');
   if (!Number.isInteger(d.contadoMil) || d.contadoMil < 0) throw new ErrorNegocio('La cantidad contada no puede ser negativa');
   const ubic = d.ubicacionProveedorId ?? null;
   const lugar = validarUbicacion(ctx.db, ubic);
   // Se cuenta un lugar: el local o lo que tiene un taller o proveedor.
-  const stock = stockEn(ctx.db, m.id, ubic);
+  const color = colorDeMovimiento(ctx.db, m, d.colorId);
+  const colorTxt = m.porColor ? ` ${color ? nombresColores(ctx.db).get(color) : 'sin color'}` : '';
+  const stock = stockEn(ctx.db, m.id, ubic, filtroColor(m, color));
   const primero = !ctx.db.select({ id: movimientosMaterial.id }).from(movimientosMaterial).where(and(eq(movimientosMaterial.materialId, m.id), eq(movimientosMaterial.tipo, 'inicial'))).get();
   const dif = d.contadoMil - stock;
-  const texto = `Conteo${ubic ? ' en ' + lugar : ''}: hay ${d.contadoMil / 1000} ${m.unidad} (el sistema tenía ${stock / 1000})${d.motivo?.trim() ? ' · ' + d.motivo.trim() : ''}`;
-  const mov = ctx.db.insert(movimientosMaterial).values({ fecha: d.fecha, materialId: m.id, cantidadMil: dif, tipo: primero ? 'inicial' : 'ajuste', costoUnitarioCentavos: m.costoCentavos, motivo: texto, ubicacionProveedorId: ubic, usuarioId: ctx.usuarioId, creadoEn: ahora() }).returning().get();
+  const texto = `Conteo${ubic ? ' en ' + lugar : ''}: hay ${d.contadoMil / 1000} ${m.unidad}${colorTxt} (el sistema tenía ${stock / 1000})${d.motivo?.trim() ? ' · ' + d.motivo.trim() : ''}`;
+  const mov = ctx.db.insert(movimientosMaterial).values({ fecha: d.fecha, materialId: m.id, colorId: color, cantidadMil: dif, tipo: primero ? 'inicial' : 'ajuste', costoUnitarioCentavos: m.costoCentavos, motivo: texto, ubicacionProveedorId: ubic, usuarioId: ctx.usuarioId, creadoEn: ahora() }).returning().get();
   auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'conteo_material', entidad: 'material', entidadId: m.id, antes: { stockMil: stock }, despues: { stockMil: d.contadoMil, diferenciaMil: dif }, detalle: texto });
   return { movimientoId: mov.id, anteriorMil: stock, contadoMil: d.contadoMil, diferenciaMil: dif };
 }
@@ -183,7 +217,7 @@ export function anularMovimientoMaterial(ctx: Ctx, movId: number, motivo: string
   if (!['compra', 'ajuste', 'inicial'].includes(m.tipo)) throw new ErrorNegocio('Este movimiento se anula desde su documento (recepción del taller)');
   if (m.refTipo === 'recepcion') throw new ErrorNegocio('Este ingreso vino de un pedido de materiales: se anula anulando la recepción en Compras');
   if (ctx.db.select({ id: movimientosMaterial.id }).from(movimientosMaterial).where(eq(movimientosMaterial.anulaId, movId)).get()) throw new ErrorNegocio('Ya está anulado');
-  ctx.db.insert(movimientosMaterial).values({ fecha: m.fecha, materialId: m.materialId, cantidadMil: -m.cantidadMil, tipo: 'anulacion', costoUnitarioCentavos: m.costoUnitarioCentavos, proveedorId: m.proveedorId, ubicacionProveedorId: m.ubicacionProveedorId, anulaId: m.id, motivo: `Anula: ${motivo.trim()}`, usuarioId: ctx.usuarioId, creadoEn: ahora() }).run();
+  ctx.db.insert(movimientosMaterial).values({ fecha: m.fecha, materialId: m.materialId, colorId: m.colorId, cantidadMil: -m.cantidadMil, tipo: 'anulacion', costoUnitarioCentavos: m.costoUnitarioCentavos, proveedorId: m.proveedorId, ubicacionProveedorId: m.ubicacionProveedorId, anulaId: m.id, motivo: `Anula: ${motivo.trim()}`, usuarioId: ctx.usuarioId, creadoEn: ahora() }).run();
   auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'anular', entidad: 'mov_material', entidadId: movId, detalle: motivo });
   return { ok: true, avisoCosto: m.tipo === 'compra' ? 'El costo promedio no se recalcula solo: revisalo en la ficha del material' : null };
 }
@@ -191,11 +225,22 @@ export function anularMovimientoMaterial(ctx: Ctx, movId: number, motivo: string
 export function detalleMaterial(db: DB, id: number) {
   const m = materialOError(db, id);
   const nombres = new Map(db.select({ id: proveedores.id, nombre: proveedores.nombre }).from(proveedores).all().map((p) => [p.id, p.nombre]));
+  const colores = nombresColores(db);
   const movs = db.select({ mv: movimientosMaterial, proveedor: proveedores.nombre }).from(movimientosMaterial).leftJoin(proveedores, eq(proveedores.id, movimientosMaterial.proveedorId))
     .where(eq(movimientosMaterial.materialId, id)).orderBy(movimientosMaterial.fecha, movimientosMaterial.id).all()
-    .map((x) => ({ ...x, mv: { ...x.mv, ubicacion: x.mv.ubicacionProveedorId ? nombres.get(x.mv.ubicacionProveedorId) ?? '—' : 'Local' } }));
+    .map((x) => ({ ...x, mv: { ...x.mv, ubicacion: x.mv.ubicacionProveedorId ? nombres.get(x.mv.ubicacionProveedorId) ?? '—' : 'Local', color: x.mv.colorId ? colores.get(x.mv.colorId) ?? '—' : null } }));
   const porLugar = new Map<number | null, number>();
   for (const x of movs) porLugar.set(x.mv.ubicacionProveedorId, (porLugar.get(x.mv.ubicacionProveedorId) ?? 0) + x.mv.cantidadMil);
+  // Materiales por color: stock de cada color en cada lugar.
+  const porColorLugar = new Map<string, { colorId: number | null; ubicacionProveedorId: number | null; cantidadMil: number }>();
+  if (m.porColor) for (const x of movs) {
+    const k = `${x.mv.colorId ?? ''}|${x.mv.ubicacionProveedorId ?? ''}`;
+    const f = porColorLugar.get(k) ?? { colorId: x.mv.colorId, ubicacionProveedorId: x.mv.ubicacionProveedorId, cantidadMil: 0 };
+    f.cantidadMil += x.mv.cantidadMil; porColorLugar.set(k, f);
+  }
+  const stockColores = [...porColorLugar.values()].filter((f) => f.cantidadMil !== 0)
+    .map((f) => ({ ...f, color: f.colorId ? colores.get(f.colorId) ?? '—' : 'Sin color', ubicacion: f.ubicacionProveedorId ? nombres.get(f.ubicacionProveedorId) ?? '—' : 'Local' }))
+    .sort((a, b) => a.color.localeCompare(b.color) || (a.ubicacionProveedorId === null ? -1 : b.ubicacionProveedorId === null ? 1 : a.ubicacion.localeCompare(b.ubicacion)));
   const ubicaciones = [...porLugar].filter(([u, n]) => u === null || n !== 0).map(([u, n]) => ({ ubicacionProveedorId: u, ubicacion: u ? nombres.get(u) ?? '—' : 'Local', cantidadMil: n }))
     .sort((a, b) => (a.ubicacionProveedorId === null ? -1 : b.ubicacionProveedorId === null ? 1 : a.ubicacion.localeCompare(b.ubicacion)));
   const anulados = new Set(movs.filter((x) => x.mv.anulaId).map((x) => x.mv.anulaId));
@@ -204,7 +249,7 @@ export function detalleMaterial(db: DB, id: number) {
   const historial = db.select().from(historialCostosMaterial).where(eq(historialCostosMaterial.materialId, id)).orderBy(desc(historialCostosMaterial.id)).limit(100).all();
   const usadoEn = db.select({ modeloId: modelos.id, modelo: modelos.nombre, cantidadMil: recetaItems.cantidadMil, talles: recetaItems.talles }).from(recetaItems)
     .innerJoin(modelos, eq(modelos.id, recetaItems.modeloId)).where(eq(recetaItems.materialId, id)).orderBy(modelos.nombre).all();
-  return { ...m, stockMil: m.tipo === 'mano_obra' ? null : saldo, ubicaciones: m.tipo === 'mano_obra' ? [] : ubicaciones, movimientos: filas, historial, usadoEn };
+  return { ...m, stockMil: m.tipo === 'mano_obra' ? null : saldo, ubicaciones: m.tipo === 'mano_obra' ? [] : ubicaciones, stockColores, movimientos: filas, historial, usadoEn };
 }
 
 // ───────────── Recetas ─────────────
@@ -212,9 +257,9 @@ export function detalleMaterial(db: DB, id: number) {
 export interface LineaReceta { materialId: number; cantidadMil: number; talles?: string[] | null; notas?: string | null }
 
 export function obtenerReceta(db: DB, modeloId: number) {
-  return db.select({ r: recetaItems, codigo: materiales.codigo, material: materiales.nombre, unidad: materiales.unidad, tipo: materiales.tipo, costoCentavos: materiales.costoCentavos })
+  return db.select({ r: recetaItems, codigo: materiales.codigo, material: materiales.nombre, unidad: materiales.unidad, tipo: materiales.tipo, costoCentavos: materiales.costoCentavos, porColor: materiales.porColor })
     .from(recetaItems).innerJoin(materiales, eq(materiales.id, recetaItems.materialId)).where(eq(recetaItems.modeloId, modeloId)).orderBy(asc(recetaItems.orden), asc(recetaItems.id)).all()
-    .map((x) => ({ ...x.r, codigo: x.codigo, material: x.material, unidad: x.unidad, tipoMaterial: x.tipo, costoUnidadCentavos: x.costoCentavos }));
+    .map((x) => ({ ...x.r, codigo: x.codigo, material: x.material, unidad: x.unidad, tipoMaterial: x.tipo, costoUnidadCentavos: x.costoCentavos, porColor: x.porColor }));
 }
 
 /** Reemplaza la receta de un modelo (es una definición, no una operación: queda el antes y después en auditoría). */
@@ -374,28 +419,34 @@ export function aplicarPrecios(ctx: Ctx, listaId: number, cambios: { varianteId:
  */
 export function consumirPorProduccion(ctx: Ctx, recepcionId: number, numero: number, fecha: string, items: { varianteId: number; cantidad: number }[]) {
   const sinReceta: string[] = [];
-  const consumo = new Map<number, number>();
+  // Por material y color: los materiales que van por color toman el color de la campera.
+  const consumo = new Map<string, { materialId: number; colorId: number | null; cantidadMil: number }>();
   for (const it of items) {
-    const v = ctx.db.select({ modeloId: variantes.modeloId, sku: variantes.sku, talle: talles.nombre }).from(variantes).leftJoin(talles, eq(talles.id, variantes.talleId)).where(eq(variantes.id, it.varianteId)).get()!;
+    const v = ctx.db.select({ modeloId: variantes.modeloId, sku: variantes.sku, talle: talles.nombre, colorId: variantes.colorId }).from(variantes).leftJoin(talles, eq(talles.id, variantes.talleId)).where(eq(variantes.id, it.varianteId)).get()!;
     const receta = obtenerReceta(ctx.db, v.modeloId).filter((l) => l.tipoMaterial === 'material' && (!l.talles || (v.talle !== null && l.talles.includes(v.talle))));
     if (!receta.length) { sinReceta.push(v.sku); continue; }
-    for (const l of receta) consumo.set(l.materialId, (consumo.get(l.materialId) ?? 0) + l.cantidadMil * it.cantidad);
+    for (const l of receta) {
+      const colorId = l.porColor ? v.colorId : null;
+      const k = claveMaterial(l.materialId, colorId);
+      const f = consumo.get(k) ?? { materialId: l.materialId, colorId, cantidadMil: 0 };
+      f.cantidadMil += l.cantidadMil * it.cantidad; consumo.set(k, f);
+    }
   }
   const t = ahora();
   // El taller usa primero el material que tiene en su poder (lo que se le entregó); lo que falte sale del local, como antes.
   const taller = tallerDeRecepcion(ctx.db, recepcionId);
   const delTaller: string[] = [];
-  for (const [materialId, cant] of consumo) {
+  for (const { materialId, colorId, cantidadMil: cant } of consumo.values()) {
     const m = materialOError(ctx.db, materialId);
-    const enTaller = taller ? Math.max(0, stockEn(ctx.db, materialId, taller)) : 0;
+    const enTaller = taller ? Math.max(0, stockEn(ctx.db, materialId, taller, filtroColor(m, colorId))) : 0;
     const partes: [number | null, number][] = [[taller, Math.min(enTaller, cant)], [null, cant - Math.min(enTaller, cant)]];
     for (const [ubic, n] of partes) {
       if (n <= 0) continue;
-      ctx.db.insert(movimientosMaterial).values({ fecha, materialId, cantidadMil: -n, tipo: 'produccion', costoUnitarioCentavos: m.costoCentavos, ubicacionProveedorId: ubic, refTipo: 'recepcion', refId: recepcionId, motivo: `Producción · recepción R-${numero}`, usuarioId: ctx.usuarioId, creadoEn: t }).run();
+      ctx.db.insert(movimientosMaterial).values({ fecha, materialId, colorId, cantidadMil: -n, tipo: 'produccion', costoUnitarioCentavos: m.costoCentavos, ubicacionProveedorId: ubic, refTipo: 'recepcion', refId: recepcionId, motivo: `Producción · recepción R-${numero}`, usuarioId: ctx.usuarioId, creadoEn: t }).run();
     }
-    if (enTaller > 0) delTaller.push(m.nombre);
+    if (enTaller > 0 && !delTaller.includes(m.nombre)) delTaller.push(m.nombre);
   }
-  return { materiales: consumo.size, sinReceta, delTaller };
+  return { materiales: new Set([...consumo.values()].map((c) => c.materialId)).size, sinReceta, delTaller };
 }
 
 /** Taller (proveedor del pedido de confección) de una recepción. */
@@ -409,7 +460,7 @@ export function revertirProduccion(ctx: Ctx, recepcionId: number, motivo: string
   const movs = ctx.db.select().from(movimientosMaterial).where(and(eq(movimientosMaterial.refTipo, 'recepcion'), eq(movimientosMaterial.refId, recepcionId), eq(movimientosMaterial.tipo, 'produccion'))).all();
   const t = ahora();
   for (const m of movs) {
-    ctx.db.insert(movimientosMaterial).values({ fecha: m.fecha, materialId: m.materialId, cantidadMil: -m.cantidadMil, tipo: 'anulacion', costoUnitarioCentavos: m.costoUnitarioCentavos, ubicacionProveedorId: m.ubicacionProveedorId, refTipo: 'recepcion', refId: recepcionId, anulaId: m.id, motivo: `Anula producción: ${motivo}`, usuarioId: ctx.usuarioId, creadoEn: t }).run();
+    ctx.db.insert(movimientosMaterial).values({ fecha: m.fecha, materialId: m.materialId, colorId: m.colorId, cantidadMil: -m.cantidadMil, tipo: 'anulacion', costoUnitarioCentavos: m.costoUnitarioCentavos, ubicacionProveedorId: m.ubicacionProveedorId, refTipo: 'recepcion', refId: recepcionId, anulaId: m.id, motivo: `Anula producción: ${motivo}`, usuarioId: ctx.usuarioId, creadoEn: t }).run();
   }
 }
 

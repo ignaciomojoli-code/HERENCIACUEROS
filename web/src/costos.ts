@@ -10,16 +10,21 @@ export interface Material {
   proveedorId: number | null; proveedor: string | null; stockMinimoMil: number | null; notas: string | null; activo: boolean;
   stockMil: number | null; modelosQueLoUsan: number;
   clasificacion: ClasificacionMaterial | null;
+  /** Se controla por color (ej. el cuero). */
+  porColor: boolean;
+  stockColores?: { colorId: number | null; color: string; cantidadMil: number }[];
 }
 export const CLASIF_MATERIAL = { materia_prima: 'Materia prima', material_produccion: 'Material de producción', insumo: 'Insumo', otro: 'Otro' } as const;
 export type ClasificacionMaterial = keyof typeof CLASIF_MATERIAL;
 export interface MovMaterial {
   id: number; fecha: string; tipo: 'inicial' | 'compra' | 'ajuste' | 'produccion' | 'anulacion' | 'traslado'; cantidadMil: number; costoUnitarioCentavos?: number | null;
   proveedor: string | null; comprobante: string | null; motivo: string | null; anulaId: number | null; anulado: boolean; saldoMil: number; ubicacion?: string;
+  colorId?: number | null; color?: string | null;
 }
 export interface DetalleMaterial extends Material {
   movimientos: MovMaterial[];
   ubicaciones?: { ubicacionProveedorId: number | null; ubicacion: string; cantidadMil: number }[];
+  stockColores?: { colorId: number | null; color: string; ubicacionProveedorId: number | null; ubicacion: string; cantidadMil: number }[];
   historial?: { id: number; anteriorCentavos: number | null; nuevoCentavos: number | null; fecha: string; origen: string; motivo: string | null }[];
   usadoEn: { modeloId: number; modelo: string; cantidadMil: number; talles: string[] | null }[];
 }
@@ -43,3 +48,9 @@ export const leerCant = (t: string) => {
 };
 
 export const useMateriales = (habilitado = true) => useQuery({ queryKey: ['materiales'], queryFn: () => api.get<Material[]>('/materiales'), enabled: habilitado });
+
+/** Colores del catálogo (los mismos de las camperas): se usan en los materiales que van por color. */
+export const useColores = () => useQuery({ queryKey: ['aux'], queryFn: () => api.get<{ colores: { id: number; nombre: string; activo: boolean }[] }>('/catalogo/aux'), staleTime: 60_000, select: (a) => a.colores });
+
+/** Nombre de un material con su color, si va por color. */
+export const conColor = (nombre: string, color?: string | null) => (color ? `${nombre} · ${color}` : nombre);
