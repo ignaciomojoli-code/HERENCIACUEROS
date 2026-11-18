@@ -130,7 +130,8 @@ export function listarFormasPago(db: DB) {
     .map((r) => ({ ...r.f, cuenta: r.cuenta, tipoCuenta: r.tipoCuenta, moneda: r.moneda, lista: r.lista }));
 }
 
-export interface DatosForma { nombre: string; cuentaId: number; listaPrecioId: number | null; comisionBp: number; orden?: number; activo?: boolean }
+export type MedioPago = 'efectivo' | 'transferencia' | 'debito' | 'credito' | 'billetera' | 'otro';
+export interface DatosForma { nombre: string; cuentaId: number; listaPrecioId: number | null; comisionBp: number; medio?: MedioPago | null; procesador?: string | null; cuotas?: number | null; orden?: number; activo?: boolean }
 
 export function guardarFormaPago(ctx: Ctx, id: number | null, d: DatosForma) {
   if (!d.nombre.trim()) throw new ErrorNegocio('Poné un nombre a la forma de pago');
@@ -140,7 +141,13 @@ export function guardarFormaPago(ctx: Ctx, id: number | null, d: DatosForma) {
   const t = ahora();
   const repetida = ctx.db.select().from(formasPago).where(sql`lower(${formasPago.nombre}) = lower(${d.nombre.trim()})`).get();
   if (repetida && repetida.id !== id) throw new ErrorNegocio('Ya hay una forma de pago con ese nombre');
-  const valores = { nombre: d.nombre.trim(), cuentaId: d.cuentaId, listaPrecioId: d.listaPrecioId, comisionBp: d.comisionBp, orden: d.orden ?? 0, activo: d.activo ?? true, actualizadoEn: t };
+  if (d.cuotas != null && (!Number.isInteger(d.cuotas) || d.cuotas < 1 || d.cuotas > 60)) throw new ErrorNegocio('Cuotas inválidas');
+  const previa = id === null ? undefined : ctx.db.select().from(formasPago).where(eq(formasPago.id, id)).get();
+  // Lo que no se manda se conserva (pantallas viejas que no conocen estos datos).
+  const medio = d.medio === undefined ? previa?.medio ?? null : d.medio;
+  const procesador = d.procesador === undefined ? previa?.procesador ?? null : d.procesador?.trim() || null;
+  const cuotas = d.cuotas === undefined ? previa?.cuotas ?? null : d.cuotas;
+  const valores = { nombre: d.nombre.trim(), cuentaId: d.cuentaId, listaPrecioId: d.listaPrecioId, comisionBp: d.comisionBp, medio, procesador, cuotas, orden: d.orden ?? 0, activo: d.activo ?? true, actualizadoEn: t };
   if (id === null) {
     const f = ctx.db.insert(formasPago).values({ ...valores, creadoEn: t }).returning().get();
     auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'crear', entidad: 'forma_pago', entidadId: f.id, despues: f });

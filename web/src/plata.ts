@@ -4,7 +4,13 @@ import { api } from './api';
 
 export type TipoCuenta = 'efectivo' | 'banco' | 'billetera' | 'a_liquidar' | 'externa';
 export interface Cuenta { id: number; nombre: string; tipo: TipoCuenta; moneda: 'ARS' | 'USD'; orden: number; activo: boolean; saldoCentavos?: number; saldoArsCentavos?: number; movimientos?: number }
-export interface FormaPago { id: number; nombre: string; cuentaId: number; cuenta: string; tipoCuenta: TipoCuenta; moneda: 'ARS' | 'USD'; listaPrecioId: number | null; lista: string | null; comisionBp: number; orden: number; activo: boolean }
+export interface FormaPago { id: number; nombre: string; cuentaId: number; cuenta: string; tipoCuenta: TipoCuenta; moneda: 'ARS' | 'USD'; listaPrecioId: number | null; lista: string | null; comisionBp: number; medio: MedioPago | null; procesador: string | null; cuotas: number | null; orden: number; activo: boolean }
+export type MedioPago = 'efectivo' | 'transferencia' | 'debito' | 'credito' | 'billetera' | 'otro';
+export const MEDIOS: Record<MedioPago, string> = { efectivo: 'Efectivo', transferencia: 'Transferencia', debito: 'Tarjeta de débito', credito: 'Tarjeta de crédito', billetera: 'Billetera / QR', otro: 'Otro' };
+/** Medios que normalmente cobran comisión: si tienen 0% cargado, se avisa que falta configurarla. */
+export const MEDIOS_CON_COMISION: MedioPago[] = ['debito', 'credito', 'billetera'];
+export const comisionDe = (importe: number, bp: number) => Math.round((importe * bp) / 10000);
+export const porcentaje = (bp: number) => `${(bp / 100).toLocaleString('es-AR', { maximumFractionDigits: 2 })}%`;
 export interface CategoriaGasto { id: number; nombre: string; padreId: number | null; ambito: 'negocio' | 'personal'; orden: number; activo: boolean }
 
 export const TIPOS_CUENTA: Record<TipoCuenta, string> = {
@@ -27,4 +33,4 @@ const usd = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'USD',
 export const dolares = (c: number | null | undefined) => (c == null ? '—' : usd.format(c / 100));
 export const enMoneda = (c: number | null | undefined, moneda: 'ARS' | 'USD', pesos: (c: number | null | undefined) => string) => (moneda === 'USD' ? dolares(c) : pesos(c));
 
-export const queriesPlata = ['cuentas', 'caja', 'ventas', 'venta', 'gastos', 'pagos', 'cuenta-corriente', 'stock', 'resumen-proveedor', 'saldos-proveedores', 'gastos-personales'];
+export const queriesPlata = ['cuentas', 'caja', 'ventas', 'venta', 'gastos', 'pagos', 'cuenta-corriente', 'stock', 'resumen-proveedor', 'saldos-proveedores', 'gastos-personales', 'caja-acreditaciones', 'reporte-cobros'];

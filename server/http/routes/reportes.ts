@@ -12,6 +12,7 @@ import { tienePermiso } from '../../domain/permisos.js';
 import { filtrarCostos } from '../filtros.js';
 import { enviarExport } from './plata.js';
 import type { ColumnaExport } from '../../services/exportar.js';
+import * as ac from '../../services/acreditaciones.js';
 
 const fecha = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida (AAAA-MM-DD)');
 const mes = z.string().regex(/^\d{4}-\d{2}$/, 'Mes inválido (AAAA-MM)');
@@ -120,5 +121,41 @@ export async function rutasReportes(app: FastifyInstance, { base, requiere }: Ap
       ...(conCostos ? [{ clave: 'costoCentavos', titulo: 'Costo', tipo: 'dinero' as const }, { clave: 'gananciaBrutaCentavos', titulo: 'Ganancia bruta', tipo: 'dinero' as const }, { clave: 'margen', titulo: 'Margen', tipo: 'texto' as const }] : []),
       { clave: 'stock', titulo: 'Stock actual', tipo: 'numero' },
     ], filas);
+  });
+
+  // ── Cobros, comisiones y acreditaciones ──
+  const filtroCobros = (req: FastifyRequest) => {
+    const r = rango(req);
+    const q = z.object({
+      formaPagoId: z.coerce.number().int().optional(), medio: z.string().optional(), procesador: z.string().optional(), cuotas: z.coerce.number().int().optional(),
+      estado: z.enum(['pendiente', 'acreditado']).optional(), ventaNumero: z.coerce.number().int().optional(), comisionBp: z.coerce.number().int().optional(),
+      importeMin: z.coerce.number().int().optional(), importeMax: z.coerce.number().int().optional(), conDiferencia: z.coerce.boolean().optional(),
+    }).parse(req.query);
+    return { ...r, ...Object.fromEntries(Object.entries(q).filter(([, v]) => v !== undefined && v !== '')) } as ac.FiltroCobros;
+  };
+  app.get('/reportes/cobros', async (req) => { requiere(req, 'panel'); requiere(req, 'caja'); return ac.reporteCobros(base.db, filtroCobros(req)); });
+  app.get('/reportes/cobros/exportar', async (req, reply) => {
+    requiere(req, 'panel', 'exportar'); requiere(req, 'caja');
+    const f = filtroCobros(req);
+    const { formato } = z.object({ formato: z.enum(['xlsx', 'csv']).default('xlsx') }).parse(req.query);
+    const filas = ac.listarCobros(base.db, f).map((c) => ({
+      ...c, venta: `V-${c.ventaNumero}`, porcentaje: `${(c.comisionBp / 100).toFixed(2)}%`, estadoTexto: c.estado === 'acreditado' ? 'Acreditado' : 'Pendiente',
+      cuotasTexto: c.cuotas ?? '', procesadorTexto: c.procesador ?? '', fechaAcreditacionTexto: c.fechaAcreditacion ?? '',
+    }));
+    auditarExport(req, 'cobros y comisiones', filas.length);
+    return enviarExport(reply, formato, `cobros-${f.desde}-a-${f.hasta}`, [
+      { clave: 'fecha', titulo: 'Fecha', tipo: 'texto' }, { clave: 'venta', titulo: 'Venta', tipo: 'texto' }, { clave: 'forma', titulo: 'Medio de pago', tipo: 'texto' },
+      { clave: 'procesadorTexto', titulo: 'Plataforma', tipo: 'texto' }, { clave: 'cuotasTexto', titulo: 'Cuotas', tipo: 'texto' },
+      { clave: 'brutoCentavos', titulo: 'Bruto cobrado', tipo: 'dinero' }, { clave: 'porcentaje', titulo: 'Comisión %', tipo: 'texto' },
+      { clave: 'comisionCentavos', titulo: 'Comisión', tipo: 'dinero' }, { clave: 'netoEsperadoCentavos', titulo: 'Neto esperado', tipo: 'dinero' },
+      { clave: 'netoAcreditadoCentavos', titulo: 'Neto acreditado', tipo: 'dinero' }, { clave: 'diferenciaCentavos', titulo: 'Diferencia', tipo: 'dinero' },
+      { clave: 'estadoTexto', titulo: 'Estado', tipo: 'texto' }, { clave: 'fechaAcreditacionTexto', titulo: 'Fecha de acreditación', tipo: 'texto' },
+    ], filas);
+  });
+  app.get('/caja/acreditaciones', async (req) => { requiere(req, 'caja'); const r = rango(req); return ac.resumenAcreditaciones(base.db, r.desde, r.hasta); });
+  app.post('/cobros/acreditar', async (req) => {
+    requiere(req, 'caja', 'crear');
+    const d = z.object({ cobroIds: z.array(z.number().int()).min(1), fecha, destinoId: z.number().int(), netoCentavos: z.number().int(), concepto: z.string().nullable().optional() }).parse(req.body);
+    return base.tx((db) => ac.acreditarCobros({ db, usuarioId: req.usuario!.id }, d));
   });
 }

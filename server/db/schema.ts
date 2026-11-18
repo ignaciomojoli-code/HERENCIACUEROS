@@ -431,6 +431,12 @@ export const formasPago = sqliteTable('formas_pago', {
   listaPrecioId: integer('lista_precio_id').references(() => listasPrecio.id),
   /** Comisión + IVA + retenciones estimadas, en puntos básicos. */
   comisionBp: integer('comision_bp').notNull().default(0),
+  /** Qué medio es (para filtrar reportes y avisar comisiones sin configurar). null = sin clasificar. */
+  medio: text('medio', { enum: ['efectivo', 'transferencia', 'debito', 'credito', 'billetera', 'otro'] }),
+  /** Plataforma o procesador (Mercado Pago, Payway…). */
+  procesador: text('procesador'),
+  /** Cuotas (crédito). null = no corresponde. */
+  cuotas: integer('cuotas'),
   orden: integer('orden').notNull().default(0),
   activo: activo(),
   creadoEn: creadoEn(),

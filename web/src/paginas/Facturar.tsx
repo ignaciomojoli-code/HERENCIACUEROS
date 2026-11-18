@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Minus, Plus, ReceiptText, RotateCcw, Trash2, X } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, ChevronRight, Minus, Plus, ReceiptText, RotateCcw, Trash2, X } from 'lucide-react';
 import { api, qs } from '../api';
 import { describirVariante, type Aux, type VarianteBuscada } from '../tipos';
 import { Confirmar, avisarError } from '../componentes/ui';
 import { Importe } from '../componentes/Importe';
 import { BuscadorVariante } from '../componentes/BuscadorVariante';
 import { pesos } from '../formato';
-import { hoy, queriesPlata, useFormasPago } from '../plata';
+import { MEDIOS, MEDIOS_CON_COMISION, comisionDe, hoy, porcentaje, queriesPlata, useFormasPago, type FormaPago } from '../plata';
 import { useClientes } from './Ventas';
 
 /**
@@ -17,7 +17,7 @@ import { useClientes } from './Ventas';
  * autocompletado de lo que falta y cálculo del vuelto en efectivo.
  */
 interface Linea { varianteId: number; sku: string; descripcion: string; stock: number; cantidad: number; precioLista: number | null; precio: number | null; tocado: boolean }
-interface Pago { clave: number; formaPagoId: number; importe: number | null; usd: number | null; tocado: boolean }
+interface Pago { clave: number; formaPagoId: number; importe: number | null; usd: number | null; tocado: boolean; abierto: boolean }
 interface Hecha { id: number; numero: number; totalCentavos: number; saldoCentavos: number; vueltoCentavos: number }
 
 let siguienteClave = 1;
@@ -62,6 +62,10 @@ export function PaginaFacturar() {
   const esEfectivo = (id: number) => { const f = forma(id); return f?.tipoCuenta === 'efectivo' && f.moneda === 'ARS'; };
   const enEfectivo = pagos.filter((p) => esEfectivo(p.formaPagoId)).reduce((s, p) => s + (p.importe ?? 0), 0);
   const vuelto = entrega != null && enEfectivo > 0 ? entrega - enEfectivo : null;
+  const comisionPago = (p: Pago) => comisionDe(p.importe ?? 0, forma(p.formaPagoId)?.comisionBp ?? 0);
+  const totalComisiones = pagos.reduce((s, p) => s + comisionPago(p), 0);
+  const netoEsperado = abonado - totalComisiones;
+  const cambiarPago = (i: number, cambio: Partial<Pago>) => setPagos((ps) => ps.map((x, j) => (j === i ? { ...x, ...cambio } : x)));
 
   // Con un solo pago que no se tocó a mano, el importe sigue al total.
   useEffect(() => { if (pagos.length === 1 && !pagos[0].tocado && pagos[0].importe !== total) setPagos((ps) => [{ ...ps[0], importe: total }]); }, [total, pagos.length]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -79,7 +83,8 @@ export function PaginaFacturar() {
     if (ya) { if (restante > 0) setPagos(pagos.map((p) => (p === ya ? { ...p, importe: (p.importe ?? 0) + restante, tocado: true } : p))); return; }
     // El primer pago va por el total; los siguientes, por lo que falta.
     const primero = pagos.length === 0;
-    setPagos([...pagos.map((p) => ({ ...p, tocado: true })), { clave: siguienteClave++, formaPagoId: id, importe: Math.max(0, restante), usd: null, tocado: !primero }]);
+    // El nuevo queda abierto para revisarlo; los anteriores se pliegan para que la pantalla no se alargue.
+    setPagos([...pagos.map((p) => ({ ...p, tocado: true, abierto: false })), { clave: siguienteClave++, formaPagoId: id, importe: Math.max(0, restante), usd: null, tocado: !primero, abierto: true }]);
   };
   const reiniciar = () => {
     setLineas([]); setPagos([]); setDesc({ modo: 'pesos', pesos: null, pct: '', motivo: '' }); setVerDescuento(false); setEntrega(null); setClienteId(null); setBuscador((n) => n + 1);
@@ -226,24 +231,16 @@ export function PaginaFacturar() {
                 {activas.slice(5).filter((f) => !pagos.some((p) => p.formaPagoId === f.id)).map((f) => <option key={f.id} value={f.id}>{f.nombre}</option>)}
               </select>
             )}
-            {pagos.map((p, i) => {
-              const f = forma(p.formaPagoId);
-              return (
-                <div key={p.clave} className="rounded-md border border-arena/70 bg-crema p-2.5">
-                  <div className="mb-1.5 flex items-center justify-between text-sm"><span className="font-medium">{f?.nombre ?? '—'}</span>
-                    <span className="flex items-center gap-2">
-                      {restante > 0 && <button className="text-xs text-conac underline" onClick={() => setPagos(pagos.map((x, j) => (j === i ? { ...x, importe: (x.importe ?? 0) + restante, tocado: true } : x)))}>+ lo que falta</button>}
-                      <button className="p-0.5 text-carbon/40 hover:text-bordo" aria-label="Quitar medio de pago" onClick={() => setPagos(pagos.filter((_, j) => j !== i))}><X className="h-4 w-4" /></button>
-                    </span>
-                  </div>
-                  <Importe valor={p.importe} onCambio={(c) => setPagos(pagos.map((x, j) => (j === i ? { ...x, importe: c, tocado: true } : x)))} />
-                  {f?.moneda === 'USD' && (
-                    <input className="entrada mt-1.5 text-right" inputMode="decimal" placeholder="Dólares recibidos" value={p.usd == null ? '' : p.usd / 100}
-                      onChange={(e) => { const n = Number(e.target.value.replace(',', '.')); setPagos(pagos.map((x, j) => (j === i ? { ...x, usd: e.target.value === '' || Number.isNaN(n) ? null : Math.round(n * 100) } : x))); }} />
-                  )}
-                </div>
-              );
-            })}
+            {pagos.map((p, i) => (
+              <PagoDesplegable key={p.clave} p={p} formas={activas} restante={restante}
+                onCambio={(c) => cambiarPago(i, c)} onQuitar={() => setPagos(pagos.filter((_, j) => j !== i))} />
+            ))}
+            {pagos.length > 0 && (
+              <dl className="space-y-0.5 rounded-md bg-crema-50 px-3 py-2 text-sm">
+                <div className="flex justify-between"><dt className="text-carbon/60">Comisiones</dt><dd className="tabular-nums">{totalComisiones ? `− ${pesos(totalComisiones)}` : pesos(0)}</dd></div>
+                <div className="flex justify-between font-medium"><dt>Neto a recibir</dt><dd className="tabular-nums">{pesos(netoEsperado)}</dd></div>
+              </dl>
+            )}
           </div>
 
           {enEfectivo > 0 && (
@@ -296,4 +293,86 @@ function billetes(monto: number) {
   const r = new Set<number>([monto]);
   for (const p of pasos) r.add(Math.ceil(monto / p) * p);
   return [...r].filter((x) => x >= monto).sort((a, b) => a - b).slice(0, 5);
+}
+
+/**
+ * Un medio de pago de la venta: plegado muestra medio, importe y neto; desplegado, el detalle de la comisión
+ * (la que está configurada en la forma de pago: no se inventa ninguna) y, en crédito, las cuotas y la plataforma.
+ */
+function PagoDesplegable({ p, formas, restante, onCambio, onQuitar }: { p: Pago; formas: FormaPago[]; restante: number; onCambio: (c: Partial<Pago>) => void; onQuitar: () => void }) {
+  const f = formas.find((x) => x.id === p.formaPagoId);
+  const importe = p.importe ?? 0;
+  const bp = f?.comisionBp ?? 0;
+  const comision = comisionDe(importe, bp);
+  const neto = importe - comision;
+  const faltaComision = !!f?.medio && MEDIOS_CON_COMISION.includes(f.medio) && bp === 0;
+  // Variantes del mismo medio: cambiar cuotas o plataforma es elegir otra forma de pago configurada.
+  const hermanas = f?.medio ? formas.filter((x) => x.medio === f.medio) : [];
+  const cuotas = [...new Set(hermanas.filter((x) => x.procesador === f?.procesador && x.cuotas != null).map((x) => x.cuotas!))].sort((a, b) => a - b);
+  const plataformas = [...new Set(hermanas.filter((x) => x.cuotas === f?.cuotas && x.procesador).map((x) => x.procesador!))];
+  const cambiarA = (pred: (x: FormaPago) => boolean) => { const otra = hermanas.find(pred); if (otra) onCambio({ formaPagoId: otra.id }); };
+  return (
+    <div className="rounded-md border border-arena/70 bg-crema">
+      <div className="flex items-center gap-1.5 px-2.5 py-2">
+        <button type="button" className="flex min-w-0 flex-1 items-center gap-1.5 text-left" onClick={() => onCambio({ abierto: !p.abierto })} aria-expanded={p.abierto}>
+          {p.abierto ? <ChevronDown className="h-4 w-4 shrink-0 text-carbon/50" /> : <ChevronRight className="h-4 w-4 shrink-0 text-carbon/50" />}
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium">{f?.nombre ?? '—'}</span>
+            {!p.abierto && <span className="block text-xs text-carbon/55">{comision ? `comisión ${porcentaje(bp)} · neto ${pesos(neto)}` : 'sin comisión'}{faltaComision && ' · falta configurar comisión'}</span>}
+          </span>
+          <span className="font-medium tabular-nums">{pesos(importe)}</span>
+        </button>
+        <button className="p-0.5 text-carbon/40 hover:text-bordo" aria-label="Quitar medio de pago" onClick={onQuitar}><X className="h-4 w-4" /></button>
+      </div>
+      {p.abierto && (
+        <div className="space-y-2 border-t border-arena/60 px-2.5 pb-2.5 pt-2">
+          <label className="block text-xs text-carbon/60">Medio de pago
+            <select className="entrada mt-0.5 py-1.5 text-sm" value={p.formaPagoId} onChange={(e) => onCambio({ formaPagoId: Number(e.target.value) })}>
+              {formas.map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}
+            </select>
+          </label>
+          {(cuotas.length > 1 || plataformas.length > 1) && (
+            <div className="grid grid-cols-2 gap-2">
+              {cuotas.length > 1 && (
+                <label className="block text-xs text-carbon/60">Cuotas
+                  <select className="entrada mt-0.5 py-1.5 text-sm" value={f?.cuotas ?? ''} onChange={(e) => cambiarA((x) => x.procesador === f?.procesador && x.cuotas === Number(e.target.value))}>
+                    {cuotas.map((c) => <option key={c} value={c}>{c === 1 ? '1 pago' : `${c} cuotas`}</option>)}
+                  </select>
+                </label>
+              )}
+              {plataformas.length > 1 && (
+                <label className="block text-xs text-carbon/60">Plataforma
+                  <select className="entrada mt-0.5 py-1.5 text-sm" value={f?.procesador ?? ''} onChange={(e) => cambiarA((x) => x.cuotas === f?.cuotas && x.procesador === e.target.value)}>
+                    {plataformas.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </label>
+              )}
+            </div>
+          )}
+          <div>
+            <div className="mb-0.5 flex items-center justify-between text-xs text-carbon/60"><span>Importe que se cobra con este medio</span>
+              {restante > 0 && <button className="text-conac underline" onClick={() => onCambio({ importe: importe + restante, tocado: true })}>+ lo que falta</button>}</div>
+            <Importe valor={p.importe} onCambio={(c) => onCambio({ importe: c, tocado: true })} />
+          </div>
+          {f?.moneda === 'USD' && (
+            <input className="entrada text-right" inputMode="decimal" placeholder="Dólares recibidos" value={p.usd == null ? '' : p.usd / 100}
+              onChange={(e) => { const n = Number(e.target.value.replace(',', '.')); onCambio({ usd: e.target.value === '' || Number.isNaN(n) ? null : Math.round(n * 100) }); }} />
+          )}
+          <dl className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-sm">
+            <dt className="text-carbon/60">Cobrado (bruto)</dt><dd className="text-right tabular-nums">{pesos(importe)}</dd>
+            <dt className="text-carbon/60">Comisión {porcentaje(bp)}</dt><dd className="text-right tabular-nums">{comision ? `− ${pesos(comision)}` : pesos(0)}</dd>
+            <dt className="font-medium">Neto a acreditar</dt><dd className="text-right font-medium tabular-nums">{pesos(neto)}</dd>
+          </dl>
+          <p className="text-xs text-carbon/55">
+            {f?.medio ? MEDIOS[f.medio] : 'Sin clasificar'}{f?.procesador ? ` · ${f.procesador}` : ''}{f?.cuotas ? ` · ${f.cuotas === 1 ? '1 pago' : `${f.cuotas} cuotas`}` : ''} · entra a {f?.cuenta}
+            {f?.tipoCuenta === 'a_liquidar' ? ': queda pendiente hasta que se acredite (se carga la liquidación real en Caja).' : ': se acredita en el momento.'}
+          </p>
+          {faltaComision && (
+            <p className="flex items-start gap-1.5 rounded bg-bordo-claro px-2 py-1.5 text-xs text-bordo"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>Este medio tiene 0% de comisión cargado. Si cobra comisión, configurala en <Link className="underline" to="/cuentas">Cuentas y formas de pago</Link>.</span></p>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }

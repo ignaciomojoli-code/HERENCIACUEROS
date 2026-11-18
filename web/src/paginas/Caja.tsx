@@ -34,7 +34,9 @@ export function PaginaCaja() {
     onSuccess: () => { avisar('Operación anulada'); setAnular(null); setMotivo(''); inv(); }, onError: avisarError,
   });
   const ctas = (cuentas.data ?? []).filter((c) => c.activo || (c.saldoCentavos ?? 0) !== 0);
-  const totalArs = ctas.filter((c) => c.tipo !== 'externa').reduce((s, c) => s + (c.saldoArsCentavos ?? 0), 0);
+  // Disponible: lo que ya está en las cuentas. Lo cobrado con tarjeta que todavía no se acreditó va aparte (no es plata disponible).
+  const disponible = ctas.filter((c) => c.tipo !== 'externa' && c.tipo !== 'a_liquidar').reduce((s, c) => s + (c.saldoArsCentavos ?? 0), 0);
+  const acred = useQuery({ queryKey: ['caja-acreditaciones'], queryFn: () => api.get<{ pendienteBrutoCentavos: number; pendienteNetoCentavos: number; pendientes: number; comisionesCajaCentavos: number; comisionesCobrosCentavos: number; brutoCobradoCentavos: number }>('/caja/acreditaciones') });
   const cuentaSel = ctas.find((c) => String(c.id) === f.cuentaId);
   const clientes = useClientes(puede('ventas'));
   const deudores = (clientes.data ?? []).filter((c) => c.saldoCentavos > 0);
@@ -68,10 +70,17 @@ export function PaginaCaja() {
             </button>
           ))}
           <div className="tarjeta bg-carbon p-4 text-marfil">
-            <div className="etiqueta text-marfil/60">Total en pesos</div>
-            <div className="mt-1 font-titulo text-2xl font-bold">{pesos(totalArs)}</div>
-            <div className="text-xs text-marfil/50">Incluye tarjetas a liquidar y dólares al cambio</div>
+            <div className="etiqueta text-marfil/60">Disponible en pesos</div>
+            <div className="mt-1 font-titulo text-2xl font-bold">{pesos(disponible)}</div>
+            <div className="text-xs text-marfil/50">Efectivo, bancos y billeteras (dólares al cambio). Sin tarjetas pendientes de acreditar.</div>
           </div>
+          {acred.data && (acred.data.pendientes > 0 || acred.data.comisionesCobrosCentavos > 0) && (
+            <Link to="/reportes?vista=cobros" className="tarjeta p-4 transition-colors hover:border-dorado">
+              <div className="etiqueta">Pendiente de acreditación</div>
+              <div className="mt-1 font-titulo text-2xl font-bold">{pesos(acred.data.pendienteNetoCentavos)}</div>
+              <div className="text-xs text-carbon/55">{acred.data.pendientes} {acred.data.pendientes === 1 ? 'cobro' : 'cobros'} con tarjeta · bruto {pesos(acred.data.pendienteBrutoCentavos)}. Comisiones del mes: {pesos(acred.data.comisionesCobrosCentavos)}</div>
+            </Link>
+          )}
           {deuda > 0 && puede('ventas') && (
             <Link to="/ventas?saldo=true&desde=2000-01-01" className="tarjeta p-4 transition-colors hover:border-dorado">
               <div className="etiqueta">Falta cobrar a clientes</div>

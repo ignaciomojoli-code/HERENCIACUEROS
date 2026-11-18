@@ -56,7 +56,7 @@ export async function rutasPlata(app: FastifyInstance, { base, requiere, conIdem
   app.put('/cuentas/:id', async (req) => { requiere(req, 'caja', 'aprobar'); const d = esquemaCuenta.parse(req.body); return base.tx((db) => cj.guardarCuenta(ctx(req, db), idDe(req), d)); });
 
   app.get('/formas-pago', async (req) => { requiere(req); return cj.listarFormasPago(base.db); });
-  const esquemaForma = z.object({ nombre: z.string(), cuentaId: entero, listaPrecioId: entero.nullable(), comisionBp: entero, orden: entero.optional(), activo: z.boolean().optional() });
+  const esquemaForma = z.object({ nombre: z.string(), cuentaId: entero, listaPrecioId: entero.nullable(), comisionBp: entero, medio: z.enum(['efectivo', 'transferencia', 'debito', 'credito', 'billetera', 'otro']).nullable().optional(), procesador: z.string().nullable().optional(), cuotas: entero.nullable().optional(), orden: entero.optional(), activo: z.boolean().optional() });
   app.post('/formas-pago', async (req) => { requiere(req, 'caja', 'aprobar'); const d = esquemaForma.parse(req.body); return base.tx((db) => cj.guardarFormaPago(ctx(req, db), null, d)); });
   app.put('/formas-pago/:id', async (req) => { requiere(req, 'caja', 'aprobar'); const d = esquemaForma.parse(req.body); return base.tx((db) => cj.guardarFormaPago(ctx(req, db), idDe(req), d)); });
 

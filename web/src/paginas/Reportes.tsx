@@ -7,6 +7,7 @@ import { Cargando, Encabezado, ErrorCarga, Vacio } from '../componentes/ui';
 import { pct, pesos } from '../formato';
 import { hoy } from '../plata';
 import { VistaPlata, VistaSituacion } from './Estadisticas';
+import { VistaCobros } from './ReporteCobros';
 
 interface FilaResultado {
   mes: string; ventasCentavos: number; costoCentavos: number; comisionesCentavos: number; ventasSinCostoCentavos: number; gananciaBrutaCentavos: number;
@@ -23,6 +24,7 @@ export function PaginaReportes() {
   const [params, setParams] = useSearchParams();
   const vistas = [
     ...(puede('ventas') && puede('caja') ? [{ clave: 'plata', texto: 'Facturado y plata' }] : []),
+    ...(puede('caja') ? [{ clave: 'cobros', texto: 'Cobros y comisiones' }] : []),
     { clave: 'situacion', texto: 'Situación de hoy' },
     ...(puede('costos') && puede('gastos') ? [{ clave: 'resultados', texto: 'Estado de resultados' }] : []),
     ...(puede('ventas') ? [{ clave: 'productos', texto: 'Ventas por producto' }] : []),
@@ -38,6 +40,7 @@ export function PaginaReportes() {
       </div>
       {!vistas.length && <Vacio>Tu rol no tiene reportes disponibles.</Vacio>}
       {vista === 'plata' && <VistaPlata params={params} fijar={fijar} />}
+      {vista === 'cobros' && <VistaCobros params={params} fijar={fijar} />}
       {vista === 'situacion' && <VistaSituacion />}
       {vista === 'resultados' && <Resultados params={params} fijar={fijar} />}
       {vista === 'productos' && <Productos params={params} fijar={fijar} />}
