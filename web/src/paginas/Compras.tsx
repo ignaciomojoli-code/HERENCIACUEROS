@@ -19,18 +19,20 @@ import { Abastecimiento } from './Abastecimiento';
 type Estado = 'borrador' | 'confirmada' | 'cerrada' | 'anulada';
 type TipoCompra = 'reventa' | 'confeccion' | 'materiales';
 type EstadoPedido = 'pendiente_solicitar' | 'solicitado' | 'pendiente_entrega' | 'entrega_parcial' | 'entregado' | 'cerrado_incompleto' | 'cancelado';
-interface Comp { comprobante: string | null; fechaComprobante: string | null; descuentoCentavos: number; impuestosCentavos: number; condicionPago: CondicionPago | null; plazoPagoDias: number | null; vencimiento: string | null }
+interface Comp { comprobante: string | null; fechaComprobante: string | null; descuentoCentavos: number; impuestosCentavos: number; condicionPago: CondicionPago | null; plazoPagoDias: number | null; vencimiento: string | null; importeFacturadoCentavos?: number | null; ajustePrecioCentavos?: number }
+/** Precio anterior y habitual del proveedor, para avisar aumentos (sin bloquear). */
+interface RefPrecio { anteriorCentavos?: number | null; anteriorFecha?: string | null; habitualCentavos?: number | null; costoEstimadoCentavos?: number | null }
 interface CompraResumen extends Comp {
   id: number; numero: number; proveedorId: number; proveedor: string; tipo: TipoCompra; fecha: string; fechaEsperada: string | null; estado: Estado; estadoPedido: EstadoPedido;
   pedidas: number; recibidas: number; totalCentavos?: number; recibidoCentavos?: number; vencimientoEfectivo: string | null; aPagarCentavos?: number; pagadoCentavos?: number; saldoCentavos?: number;
 }
-interface ItemC { id: number; varianteId: number; sku: string; modelo: string; modeloId: number; color: string | null; talle: string | null; cantidad: number; costoUnitarioCentavos?: number; recibido: number; pendiente: number; notas: string | null }
-interface LineaMat { id: number; materialId: number; colorId: number | null; color: string | null; codigo: string; material: string; unidad: Unidad; cantidadMil: number; costoUnitarioCentavos?: number; recibidoMil: number; pendienteMil: number; notas: string | null }
+interface ItemC extends RefPrecio { id: number; varianteId: number; sku: string; modelo: string; modeloId: number; color: string | null; talle: string | null; cantidad: number; cantidadSolicitada: number | null; cantidadFacturada: number | null; costoUnitarioCentavos?: number; recibido: number; pendiente: number; notas: string | null }
+interface LineaMat extends RefPrecio { id: number; materialId: number; colorId: number | null; color: string | null; codigo: string; material: string; unidad: Unidad; cantidadMil: number; cantidadSolicitadaMil: number | null; cantidadFacturadaMil: number | null; costoUnitarioCentavos?: number; recibidoMil: number; pendienteMil: number; notas: string | null }
 interface Recepcion {
   id: number; numero: number; fecha: string; comprobante: string | null; notas: string | null; estado: 'activa' | 'anulada'; motivoAnulacion: string | null;
   items: { id: number; sku: string; cantidad: number; costoUnitarioCentavos?: number }[]; materiales: { id: number; material: string; unidad: Unidad; cantidadMil: number; costoUnitarioCentavos?: number }[];
 }
-interface Compra extends Omit<CompraResumen, 'pedidas' | 'recibidas'> { notas: string | null; items: ItemC[]; materiales: LineaMat[]; recepciones: Recepcion[]; pagos: { pagoId: number; numero: number; fecha: string; importeCentavos: number; totalPagoCentavos: number }[] }
+interface Compra extends Omit<CompraResumen, 'pedidas' | 'recibidas'> { notas: string | null; totalEstimadoCentavos?: number; totalConfirmadoCentavos?: number; items: ItemC[]; materiales: LineaMat[]; recepciones: Recepcion[]; pagos: { pagoId: number; numero: number; fecha: string; importeCentavos: number; totalPagoCentavos: number }[] }
 interface Proveedor { id: number; nombre: string; activo: boolean; condicionPago: CondicionPago | null; plazoPagoDias: number | null }
 
 export const ESTADOS_PEDIDO: Record<EstadoPedido, [string, string]> = {
@@ -262,6 +264,7 @@ export function PaginaCompra() {
   const [accion, setAccion] = useState<'confirmar' | 'cerrar' | 'anular' | null>(null);
   const [anularRec, setAnularRec] = useState<Recepcion | null>(null);
   const [editComp, setEditComp] = useState(false);
+  const [corregir, setCorregir] = useState(false);
   const [motivo, setMotivo] = useState('');
   const inv = () => { qc.invalidateQueries({ queryKey: ['compra', id] }); qc.invalidateQueries({ queryKey: ['compras'] }); qc.invalidateQueries({ queryKey: ['stock'] }); };
   const estado = useMutation({
@@ -300,61 +303,66 @@ export function PaginaCompra() {
             <div className={vencido(k) ? 'font-medium text-bordo' : 'text-carbon/70'}>Vence: {k.vencimientoEfectivo ? fmtFecha(k.vencimientoEfectivo + 'T12:00') : '—'}{vencido(k) && ' (vencido)'}{k.vencimiento && <span className="text-xs text-carbon/50"> · fijado a mano</span>}</div>
           </div>
           <div className="space-y-1 text-sm">
-            <div className="etiqueta">Lo que se le debe</div>
+            <div className="etiqueta">Importes</div>
+            <div className="flex justify-between"><span className="text-carbon/60">Estimado al pedir</span><span>{pesos(k.totalEstimadoCentavos)}</span></div>
+            <div className="flex justify-between"><span className="text-carbon/60">Confirmado con el proveedor</span><span className="font-medium">{pesos(k.totalConfirmadoCentavos)}</span></div>
+            <div className="flex justify-between"><span className="text-carbon/60">Facturado</span><span>{k.importeFacturadoCentavos != null ? pesos(k.importeFacturadoCentavos) : <span className="text-carbon/45">sin factura</span>}</span></div>
             <div className="flex justify-between"><span className="text-carbon/60">Recibido</span><span>{pesos(k.recibidoCentavos)}</span></div>
-            {k.descuentoCentavos > 0 && <div className="flex justify-between"><span className="text-carbon/60">Descuento</span><span>{pesos(-k.descuentoCentavos)}</span></div>}
-            {k.impuestosCentavos > 0 && <div className="flex justify-between"><span className="text-carbon/60">Impuestos</span><span>{pesos(k.impuestosCentavos)}</span></div>}
+            <div className="flex justify-between border-t border-arena pt-1"><span className="text-carbon/60" title={k.importeFacturadoCentavos != null ? 'Lo facturado' : 'Lo recibido ± descuento, impuestos y diferencia de precio'}>Se le debe</span><span>{pesos(k.aPagarCentavos)}</span></div>
             <div className="flex justify-between"><span className="text-carbon/60">Pagado</span><span>{pesos(-(k.pagadoCentavos ?? 0))}</span></div>
-            <div className="flex justify-between border-t border-arena pt-1 font-medium"><span>Saldo</span><span className={(k.saldoCentavos ?? 0) > 0 ? 'text-bordo' : ''}>{pesos(k.saldoCentavos)}</span></div>
+            <div className="flex justify-between border-t border-arena pt-1 font-medium"><span>Saldo pendiente</span><span className={(k.saldoCentavos ?? 0) > 0 ? 'text-bordo' : ''}>{pesos(k.saldoCentavos)}</span></div>
           </div>
           <div className="space-y-2 text-sm">
             <div className="etiqueta">Pagos imputados</div>
             {k.pagos.length ? k.pagos.map((p) => <div key={p.pagoId}><Link className="underline" to={`/pagos?proveedor=${k.proveedorId}`}>PP-{p.numero}</Link> · {fmtFecha(p.fecha + 'T12:00')} · {pesos(p.importeCentavos)}{p.totalPagoCentavos !== p.importeCentavos && <span className="text-xs text-carbon/50"> (de {pesos(p.totalPagoCentavos)})</span>}</div>) : <div className="text-carbon/50">Ninguno</div>}
             <div className="flex flex-wrap gap-2 pt-1">
               {k.estado !== 'anulada' && puede('compras', 'modificar') && <button className="btn-secundario btn-chico" onClick={() => setEditComp(true)}>Editar factura y pago</button>}
+              {(k.estado === 'confirmada' || k.estado === 'cerrada') && puede('compras', 'modificar') && <button className="btn-secundario btn-chico" onClick={() => setCorregir(true)}><Pencil className="h-3.5 w-3.5" />Corregir precios y cantidades</button>}
               {puede('caja', 'crear') && k.estado !== 'anulada' && <Link className="btn-secundario btn-chico" to={`/pagos?proveedor=${k.proveedorId}&pagar=${k.id}`}>Registrar pago</Link>}
             </div>
           </div>
           <div className="md:col-span-3"><Adjuntos entidad="compra" entidadId={k.id} /></div>
         </div>
       )}
-      {esMat ? (
-        <div className="tarjeta overflow-x-auto">
-          <table className="tabla">
-            <thead><tr><th>Material</th><th className="num">Pedido</th><th className="num">Recibido</th><th className="num">Falta</th>{verCostos && <th className="num">Costo por unidad</th>}{verCostos && <th className="num">Subtotal</th>}</tr></thead>
-            <tbody>
-              {k.materiales.map((m) => (
-                <tr key={m.id}>
-                  <td><b>{m.codigo}</b><div className="text-xs text-carbon/55">{conColor(m.material, m.color)}</div></td>
-                  <td className="num">{cant(m.cantidadMil)} {m.unidad}</td><td className="num">{cant(m.recibidoMil)}</td>
-                  <td className={`num ${m.pendienteMil > 0 && k.estado === 'confirmada' ? 'font-medium text-conac' : 'text-carbon/40'}`}>{cant(m.pendienteMil)}</td>
-                  {verCostos && <td className="num">{pesos(m.costoUnitarioCentavos)}</td>}
-                  {verCostos && <td className="num">{pesos(Math.round(((m.costoUnitarioCentavos ?? 0) * m.cantidadMil) / 1000))}</td>}
-                </tr>
-              ))}
-            </tbody>
-            {verCostos && <tfoot><tr><td className="px-3 py-2" colSpan={4}>Recibido valorizado: <b>{pesos(k.recibidoCentavos)}</b></td><td /><td className="num px-3 py-2 font-titulo text-lg font-bold">{pesos(k.totalCentavos)}</td></tr></tfoot>}
-          </table>
-        </div>
-      ) : (
       <div className="tarjeta overflow-x-auto">
         <table className="tabla">
-          <thead><tr><th>Producto</th><th className="num">Pedido</th><th className="num">Recibido</th><th className="num">Falta</th>{verCostos && <th className="num">{k.tipo === 'confeccion' ? 'Confección c/u' : 'Costo c/u'}</th>}{verCostos && <th className="num">Subtotal</th>}</tr></thead>
+          <thead><tr>
+            <th>{esMat ? 'Material' : 'Producto'}</th><th className="num">Solicitado</th><th className="num">Confirmado</th><th className="num hidden md:table-cell">Facturado</th><th className="num">Recibido</th><th className="num">Falta</th>
+            {verCostos && <th className="num hidden lg:table-cell">Precio estimado</th>}{verCostos && <th className="num">{k.tipo === 'confeccion' ? 'Confección c/u' : 'Precio confirmado'}</th>}{verCostos && <th className="num">Subtotal</th>}
+          </tr></thead>
           <tbody>
-            {k.items.map((i) => (
+            {esMat ? k.materiales.map((m) => (
+              <tr key={m.id}>
+                <td><b>{m.codigo}</b><div className="text-xs text-carbon/55">{conColor(m.material, m.color)} · {m.unidad}</div></td>
+                <td className="num text-carbon/60">{cant(m.cantidadSolicitadaMil ?? m.cantidadMil)}</td>
+                <td className="num font-medium">{cant(m.cantidadMil)}</td>
+                <td className="num hidden md:table-cell text-carbon/60">{m.cantidadFacturadaMil == null ? '—' : cant(m.cantidadFacturadaMil)}</td>
+                <td className="num">{cant(m.recibidoMil)}</td>
+                <td className={`num ${m.pendienteMil > 0 && k.estado === 'confirmada' ? 'font-medium text-conac' : 'text-carbon/40'}`}>{cant(m.pendienteMil)}</td>
+                {verCostos && <td className="num hidden lg:table-cell text-carbon/60">{pesos(m.costoEstimadoCentavos ?? m.costoUnitarioCentavos)}</td>}
+                {verCostos && <td className="num">{pesos(m.costoUnitarioCentavos)}<AvisoPrecio l={m} /></td>}
+                {verCostos && <td className="num">{pesos(Math.round(((m.costoUnitarioCentavos ?? 0) * m.cantidadMil) / 1000))}</td>}
+              </tr>
+            )) : k.items.map((i) => (
               <tr key={i.id}>
                 <td><Link className="font-medium hover:underline" to={`/catalogo/${i.modeloId}`}>{i.sku}</Link><div className="text-xs text-carbon/55">{describirVariante(i)}</div></td>
-                <td className="num">{i.cantidad}</td><td className="num">{i.recibido}</td>
+                <td className="num text-carbon/60">{i.cantidadSolicitada ?? i.cantidad}</td>
+                <td className="num font-medium">{i.cantidad}</td>
+                <td className="num hidden md:table-cell text-carbon/60">{i.cantidadFacturada ?? '—'}</td>
+                <td className="num">{i.recibido}</td>
                 <td className={`num ${i.pendiente > 0 && k.estado === 'confirmada' ? 'font-medium text-conac' : 'text-carbon/40'}`}>{i.pendiente}</td>
-                {verCostos && <td className="num">{pesos(i.costoUnitarioCentavos)}</td>}
+                {verCostos && <td className="num hidden lg:table-cell text-carbon/60">{pesos(i.costoEstimadoCentavos ?? i.costoUnitarioCentavos)}</td>}
+                {verCostos && <td className="num">{pesos(i.costoUnitarioCentavos)}<AvisoPrecio l={i} /></td>}
                 {verCostos && <td className="num">{pesos((i.costoUnitarioCentavos ?? 0) * i.cantidad)}</td>}
               </tr>
             ))}
           </tbody>
-          {verCostos && <tfoot><tr><td className="px-3 py-2" colSpan={4}>Recibido valorizado: <b>{pesos(k.recibidoCentavos)}</b></td><td /><td className="num px-3 py-2 font-titulo text-lg font-bold">{pesos(k.totalCentavos)}</td></tr></tfoot>}
+          {verCostos && <tfoot><tr>
+            <td className="px-3 py-2 text-sm" colSpan={6}>Estimado {pesos(k.totalEstimadoCentavos)} · recibido valorizado <b>{pesos(k.recibidoCentavos)}</b>{(k.descuentoCentavos || k.impuestosCentavos || k.ajustePrecioCentavos) ? <span className="text-carbon/60"> · total confirmado con descuento, impuestos y diferencias {pesos(k.totalConfirmadoCentavos)}</span> : null}</td>
+            <td className="hidden lg:table-cell" /><td /><td className="num px-3 py-2 font-titulo text-lg font-bold">{pesos(k.totalCentavos)}</td>
+          </tr></tfoot>}
         </table>
       </div>
-      )}
       {k.tipo === 'confeccion' && puede('materiales') && <Abastecimiento compraId={k.id} />}
       <h2 className="mb-3 mt-8 text-xl font-bold">Recepciones</h2>
       {!k.recepciones.length ? <Vacio>Todavía no entregó nada.</Vacio> : (
@@ -380,6 +388,7 @@ export function PaginaCompra() {
       )}
       {recibir && (esMat ? <ModalRecepcionMateriales compra={k} onCerrar={() => setRecibir(false)} onListo={inv} /> : <ModalRecepcion compra={k} onCerrar={() => setRecibir(false)} onListo={inv} />)}
       {editComp && <ModalComprobante compra={k} onCerrar={() => setEditComp(false)} onListo={inv} />}
+      {corregir && <ModalCorregir compra={k} onCerrar={() => setCorregir(false)} onListo={inv} />}
       {accion && (
         <Confirmar titulo={accion === 'confirmar' ? 'Confirmar pedido' : accion === 'cerrar' ? 'Cerrar con pendientes' : 'Anular pedido'} textoBoton={accion === 'confirmar' ? 'Confirmar' : accion === 'cerrar' ? 'Cerrar' : 'Anular'} peligro={accion === 'anular'}
           ocupado={estado.isPending} onCerrar={() => { setAccion(null); setMotivo(''); }} onConfirmar={() => estado.mutate(accion)}>
@@ -521,10 +530,129 @@ function ModalComprobante({ compra, onCerrar, onListo }: { compra: Compra; onCer
   return (
     <Modal titulo={`Factura y pago · P-${compra.numero}`} onCerrar={onCerrar} ancho="max-w-3xl">
       <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (valido) m.mutate(); }}>
-        <CamposComprobante d={d} onCambio={setD} />
-        <p className="text-xs text-carbon/55">El descuento y los impuestos cambian lo que se le debe al proveedor; no cambian el costo de los productos.</p>
+        <CamposComprobante d={d} onCambio={setD} conFacturado={compra.estado !== 'borrador'} />
+        <p className="text-xs text-carbon/55">El descuento y los impuestos cambian lo que se le debe al proveedor; no cambian el costo de los productos. Si cargás el total de la factura, ese es el importe que se le debe.</p>
         {pideMotivo && <Campo etiqueta="Motivo del cambio"><input className="entrada" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ej.: llegó la factura" /></Campo>}
         <div className="flex justify-end gap-2"><button type="button" className="btn-secundario" onClick={onCerrar}>Cancelar</button><button className="btn-primario" disabled={!valido || m.isPending}>Guardar</button></div>
+      </form>
+    </Modal>
+  );
+}
+
+/** Aviso (no bloquea) cuando el precio confirmado sube o baja respecto del último precio de ese proveedor. */
+function AvisoPrecio({ l }: { l: RefPrecio & { costoUnitarioCentavos?: number } }) {
+  const ref = l.anteriorCentavos ?? l.habitualCentavos;
+  if (!ref || l.costoUnitarioCentavos == null || l.costoUnitarioCentavos === ref) return null;
+  const bp = Math.round(((l.costoUnitarioCentavos - ref) / ref) * 10000);
+  const sube = bp > 0;
+  return <div className={`text-[11px] ${sube ? 'text-bordo' : 'text-carbon/50'}`} title={l.anteriorFecha ? `Último precio ${pesos(ref)} (${fmtFecha(l.anteriorFecha + 'T12:00')})` : `Precio habitual ${pesos(ref)}`}>{sube ? '↑' : '↓'} {Math.abs(bp / 100).toLocaleString('es-AR', { maximumFractionDigits: 1 })}% vs {pesos(ref)}</div>;
+}
+
+interface FilaCorr { id: number; nombre: string; detalle: string; unidad: string; esMat: boolean; texto: string; recibido: number; precio: number | null; facturada: string; habitual: boolean; ref: number | null; materialId?: number; colorId?: number | null; varianteId?: number }
+
+/**
+ * Corrige un pedido confirmado con lo que se acordó de verdad con el proveedor: cantidades, precios (o subtotales),
+ * lo facturado, descuento, impuestos, diferencia de precio, fechas y condición de pago. Nada se bloquea porque el precio
+ * real no coincida con el estimado. El cambio queda en auditoría con el motivo.
+ */
+function ModalCorregir({ compra, onCerrar, onListo }: { compra: Compra; onCerrar: () => void; onListo: () => void }) {
+  const esMat = compra.tipo === 'materiales';
+  const [filas, setFilas] = useState<FilaCorr[]>(() => esMat
+    ? compra.materiales.map((m) => ({ id: m.id, nombre: m.codigo, detalle: conColor(m.material, m.color), unidad: m.unidad, esMat: true, texto: cant(m.cantidadMil).replace(/\./g, ''), recibido: m.recibidoMil, precio: m.costoUnitarioCentavos ?? null,
+      facturada: m.cantidadFacturadaMil == null ? '' : cant(m.cantidadFacturadaMil).replace(/\./g, ''), habitual: false, ref: m.anteriorCentavos ?? m.habitualCentavos ?? null, materialId: m.materialId, colorId: m.colorId }))
+    : compra.items.map((i) => ({ id: i.id, nombre: i.sku, detalle: describirVariante(i), unidad: 'u', esMat: false, texto: String(i.cantidad), recibido: i.recibido, precio: i.costoUnitarioCentavos ?? null,
+      facturada: i.cantidadFacturada == null ? '' : String(i.cantidadFacturada), habitual: false, ref: i.anteriorCentavos ?? i.habitualCentavos ?? null, varianteId: i.varianteId })));
+  const [d, setD] = useState({ ...comprobanteDe(compra), ajuste: compra.ajustePrecioCentavos ?? 0, fecha: compra.fecha, fechaEsperada: compra.fechaEsperada ?? '', notas: compra.notas ?? '', aRecibido: true });
+  const [motivo, setMotivo] = useState('');
+  const qty = (f: FilaCorr) => (f.esMat ? leerCant(f.texto) : Number(f.texto));
+  const subtotal = (f: FilaCorr) => { const q = qty(f); return Number.isFinite(q) && f.precio != null ? (f.esMat ? Math.round((f.precio * q) / 1000) : f.precio * q) : 0; };
+  const suma = filas.reduce((s, f) => s + subtotal(f), 0);
+  const base = suma - (d.descuentoCentavos ?? 0) + (d.impuestosCentavos ?? 0);
+  const total = base + d.ajuste;
+  const set = (i: number, p: Partial<FilaCorr>) => setFilas(filas.map((f, j) => (j === i ? { ...f, ...p } : f)));
+  // Si se escribe el subtotal, se recalcula el precio unitario.
+  const fijarSubtotal = (i: number, c: number | null) => {
+    const f = filas[i]; const q = qty(f);
+    if (c == null || !Number.isFinite(q) || q <= 0) return;
+    set(i, { precio: f.esMat ? Math.round((c * 1000) / q) : Math.round(c / q) });
+  };
+  // Llevar el total a un importe: la diferencia queda como "diferencia de precio" (suma o resta a lo que se debe).
+  const fijarTotal = (c: number | null) => { if (c != null) setD({ ...d, ajuste: c - base }); };
+  const repartir = () => {
+    // Reparte la diferencia en los precios (proporcional); lo que no cierra por redondeo queda como diferencia.
+    if (!suma || !d.ajuste) return;
+    const factor = (suma + d.ajuste) / suma;
+    const nuevas = filas.map((f) => ({ ...f, precio: f.precio == null ? null : Math.round(f.precio * factor) }));
+    const nuevaSuma = nuevas.reduce((s, f) => s + subtotal(f), 0);
+    setFilas(nuevas); setD({ ...d, ajuste: total - (nuevaSuma - (d.descuentoCentavos ?? 0) + (d.impuestosCentavos ?? 0)) });
+  };
+  const errores: string[] = [];
+  for (const f of filas) {
+    const q = qty(f);
+    if (!Number.isFinite(q) || q < 0) errores.push(`Cantidad inválida en ${f.nombre}`);
+    else if (q < f.recibido) errores.push(`${f.nombre}: ya llegaron ${f.esMat ? cant(f.recibido) : f.recibido}, no se puede confirmar menos`);
+    if (f.precio == null) errores.push(`Falta el precio de ${f.nombre}`);
+    if (f.facturada && !Number.isFinite(f.esMat ? leerCant(f.facturada) : Number(f.facturada))) errores.push(`Cantidad facturada inválida en ${f.nombre}`);
+  }
+  if (!motivo.trim()) errores.push('Indicá el motivo');
+  if (!comprobanteValido(d)) errores.push('A plazo: indicá los días o el vencimiento');
+  const m = useMutation({
+    mutationFn: () => api.put(`/compras/${compra.id}/corregir`, {
+      ...cuerpoComprobante(d), ajustePrecioCentavos: d.ajuste, motivo, fecha: d.fecha, fechaEsperada: d.fechaEsperada || null, notas: d.notas, precioALoRecibido: d.aRecibido,
+      ...(esMat
+        ? { materiales: filas.map((f) => ({ id: f.id, cantidadMil: qty(f), costoUnitarioCentavos: f.precio!, cantidadFacturadaMil: f.facturada ? leerCant(f.facturada) : null })) }
+        : { items: filas.map((f) => ({ id: f.id, cantidad: qty(f), costoUnitarioCentavos: f.precio!, cantidadFacturada: f.facturada ? Number(f.facturada) : null })) }),
+      habituales: filas.filter((f) => f.habitual).map((f) => ({ materialId: f.materialId ?? null, colorId: f.colorId ?? null, varianteId: f.varianteId ?? null, precioCentavos: f.precio! })),
+    }),
+    onSuccess: () => { avisar('Pedido corregido'); onListo(); onCerrar(); }, onError: avisarError,
+  });
+  const hayRecibido = filas.some((f) => f.recibido > 0);
+  return (
+    <Modal titulo={`Corregir pedido P-${compra.numero} · ${compra.proveedor}`} onCerrar={onCerrar} ancho="max-w-6xl">
+      <form className="space-y-5" onSubmit={(e) => { e.preventDefault(); if (!errores.length) m.mutate(); }}>
+        <p className="text-sm text-carbon/65">Cargá lo que realmente acordaste con el proveedor. Podés cambiar el precio unitario o escribir directamente el subtotal. Nada se bloquea si no coincide con lo estimado.</p>
+        <div className="overflow-x-auto">
+          <table className="tabla">
+            <thead><tr><th>{esMat ? 'Material' : 'Producto'}</th><th className="num w-28">Confirmado</th><th className="num w-28">Facturado</th><th className="num">Recibido</th><th className="num w-36">Precio unitario</th><th className="num w-36">Subtotal</th><th>Precio habitual</th></tr></thead>
+            <tbody>
+              {filas.map((f, i) => (
+                <tr key={f.id}>
+                  <td><b>{f.nombre}</b><div className="text-xs text-carbon/55">{f.detalle}{f.esMat && ` · ${f.unidad}`}</div></td>
+                  <td><input className="entrada py-1 text-right" inputMode="decimal" value={f.texto} onChange={(e) => set(i, { texto: e.target.value })} aria-label={`Cantidad confirmada de ${f.nombre}`} /></td>
+                  <td><input className="entrada py-1 text-right" inputMode="decimal" value={f.facturada} placeholder="—" onChange={(e) => set(i, { facturada: e.target.value })} aria-label={`Cantidad facturada de ${f.nombre}`} /></td>
+                  <td className="num text-carbon/60">{f.esMat ? cant(f.recibido) : f.recibido}</td>
+                  <td><Importe valor={f.precio} onCambio={(c) => set(i, { precio: c })} />{f.ref != null && f.precio != null && f.precio !== f.ref && <div className={`mt-0.5 text-right text-[11px] ${f.precio > f.ref ? 'text-bordo' : 'text-carbon/50'}`}>{f.precio > f.ref ? '↑' : '↓'} {Math.abs(((f.precio - f.ref) / f.ref) * 100).toLocaleString('es-AR', { maximumFractionDigits: 1 })}% vs {pesos(f.ref)}</div>}</td>
+                  <td><Importe valor={subtotal(f)} onCambio={(c) => fijarSubtotal(i, c)} /></td>
+                  <td><label className="flex items-center gap-1.5 text-xs"><input type="checkbox" checked={f.habitual} onChange={(e) => set(i, { habitual: e.target.checked })} />Guardar como habitual</label></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+          <div className="space-y-3">
+            <CamposComprobante d={d} onCambio={(x) => setD({ ...d, ...x })} />
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Campo etiqueta="Fecha del pedido"><input className="entrada" type="date" value={d.fecha} onChange={(e) => setD({ ...d, fecha: e.target.value })} /></Campo>
+              <Campo etiqueta="Entrega esperada"><input className="entrada" type="date" value={d.fechaEsperada} onChange={(e) => setD({ ...d, fechaEsperada: e.target.value })} /></Campo>
+              <Campo etiqueta="Observaciones"><input className="entrada" value={d.notas} onChange={(e) => setD({ ...d, notas: e.target.value })} /></Campo>
+            </div>
+            {hayRecibido && <label className="flex items-start gap-2 text-sm"><input className="mt-1" type="checkbox" checked={d.aRecibido} onChange={(e) => setD({ ...d, aRecibido: e.target.checked })} /><span>El precio nuevo vale también para lo que ya llegó (la deuda queda al precio real). El costo del stock no cambia.</span></label>}
+          </div>
+          <div className="tarjeta h-fit space-y-2 bg-crema p-4 text-sm">
+            <div className="flex justify-between"><span className="text-carbon/60">Suma de las líneas</span><span>{pesos(suma)}</span></div>
+            {!!d.descuentoCentavos && <div className="flex justify-between"><span className="text-carbon/60">Descuento</span><span>{pesos(-d.descuentoCentavos)}</span></div>}
+            {!!d.impuestosCentavos && <div className="flex justify-between"><span className="text-carbon/60">Impuestos</span><span>{pesos(d.impuestosCentavos)}</span></div>}
+            <Campo etiqueta="Diferencia de precio o redondeo"><Importe valor={d.ajuste} onCambio={(c) => setD({ ...d, ajuste: c ?? 0 })} /></Campo>
+            <Campo etiqueta="Total confirmado" ayuda="Si el proveedor te pasó un total, escribilo acá"><Importe valor={total} onCambio={fijarTotal} /></Campo>
+            {d.ajuste !== 0 && suma > 0 && <button type="button" className="text-xs text-conac underline" onClick={repartir}>Repartir la diferencia en los precios</button>}
+            <div className="flex justify-between border-t border-arena pt-2 text-carbon/60"><span>Estimado al pedir</span><span>{pesos(compra.totalEstimadoCentavos)}</span></div>
+            <Campo etiqueta="Total de la factura" ayuda="Si lo cargás, es lo que se le debe por este pedido"><Importe valor={d.importeFacturadoCentavos} onCambio={(c) => setD({ ...d, importeFacturadoCentavos: c })} placeholder="Sin factura" /></Campo>
+          </div>
+        </div>
+        <Campo etiqueta="Motivo de la corrección"><input className="entrada" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ej.: Artintex aumentó los precios" /></Campo>
+        {errores.length > 0 && motivo && <ul className="text-sm text-bordo">{errores.map((e) => <li key={e}>{e}</li>)}</ul>}
+        <div className="flex justify-end gap-2"><button type="button" className="btn-secundario" onClick={onCerrar}>Cancelar</button><button className="btn-primario" disabled={!!errores.length || m.isPending}>Guardar corrección</button></div>
       </form>
     </Modal>
   );

@@ -9,6 +9,7 @@ const ENTIDADES: Record<string, [string, string]> = {
   venta: ['Venta', 'ventas'], cobro: ['Cobro', 'ventas'], cliente: ['Cliente', 'ventas'],
   caja: ['Caja', 'caja'], cuenta: ['Cuenta', 'caja'], forma_pago: ['Forma de pago', 'caja'], pago_proveedor: ['Pago a proveedor', 'caja'],
   ajuste_proveedor: ['Ajuste de cuenta corriente', 'caja'],
+  precio_proveedor: ['Precio de proveedor', 'proveedores'],
   gasto: ['Gasto', 'gastos'], gasto_personal: ['Gasto personal', 'gastos'], categoria_gasto: ['Categoría de gasto', 'gastos'],
   compra: ['Pedido', 'compras'], compras: ['Compras', 'compras'], recepcion: ['Recepción', 'compras'], lista_pedido: ['Para pedir', 'compras'],
   necesidad_material: ['Reposición de materiales', 'compras'], proveedor: ['Proveedor', 'compras'], adjunto: ['Adjunto', 'compras'],

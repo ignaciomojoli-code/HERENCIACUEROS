@@ -33,6 +33,7 @@ import { PaginaStockInicial } from './paginas/StockInicial';
 import { PaginaCompra, PaginaCompraForm, PaginaCompras } from './paginas/Compras';
 import { PaginaVenta, PaginaVentaEditar, PaginaVentaNueva, PaginaVentas } from './paginas/Ventas';
 import { PaginaClientes } from './paginas/Clientes';
+import { PaginaFacturar } from './paginas/Facturar';
 import { PaginaCaja } from './paginas/Caja';
 import { PaginaReportes } from './paginas/Reportes';
 import { PaginaMateriales } from './paginas/Materiales';
@@ -99,6 +100,7 @@ function App() {
           {puede('compras', 'crear') && <Route path="/compras/nuevo" element={<PaginaCompraForm />} />}
           {puede('compras') && <Route path="/compras/:id" element={<PaginaCompra />} />}
           {puede('compras', 'modificar') && <Route path="/compras/:id/editar" element={<PaginaCompraForm />} />}
+          {puede('ventas', 'crear') && <Route path="/facturar" element={<PaginaFacturar />} />}
           {puede('ventas') && <Route path="/ventas" element={<PaginaVentas />} />}
           {puede('ventas', 'crear') && <Route path="/ventas/nueva" element={<PaginaVentaNueva />} />}
           {puede('ventas') && <Route path="/ventas/:id" element={<PaginaVenta />} />}

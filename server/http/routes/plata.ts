@@ -136,7 +136,7 @@ export async function rutasPlata(app: FastifyInstance, { base, requiere, conIdem
   const cobro = z.object({ formaPagoId: entero, importeCentavos: entero, importeMonedaCentavos: opt(entero), comisionRealCentavos: opt(entero) });
   const datosVenta = z.object({
     fecha, cliente: opt(z.string()), clienteId: opt(entero), listaPrecioId: opt(entero), notas: opt(z.string()),
-    descuentoCentavos: entero.min(0).default(0), motivoDescuento: opt(z.string()),
+    descuentoCentavos: entero.min(0).default(0), motivoDescuento: opt(z.string()), efectivoRecibidoCentavos: entero.min(0).nullable().optional(),
     items: z.array(z.object({ varianteId: entero, cantidad: entero, precioCentavos: entero })),
     pagos: z.array(cobro),
   });

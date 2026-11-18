@@ -43,7 +43,7 @@ export function PaginaCaja() {
   return (
     <>
       <Encabezado titulo="Caja" sub="Dónde está la plata. Cada movimiento queda registrado; para corregir se anula, no se borra.">
-        {puede('ventas', 'crear') && <Link className="btn-primario" to="/ventas/nueva"><ShoppingBag className="h-4 w-4" />Nueva venta</Link>}
+        {puede('ventas', 'crear') && <Link className="btn-primario" to="/facturar"><ShoppingBag className="h-4 w-4" />Facturar</Link>}
         {puede('gastos', 'crear') && <Link className="btn-secundario" to="/gastos?nuevo=1"><Receipt className="h-4 w-4" />Gasto</Link>}
         {puede('caja', 'exportar') && <a className="btn-secundario" href={'/api/caja/exportar' + qs({ ...f, pagina: undefined })}><Download className="h-4 w-4" />Excel</a>}
       </Encabezado>

@@ -7,6 +7,7 @@ import { tienePermiso } from '../../domain/permisos.js';
 import { filtrarCostos } from '../filtros.js';
 import { saldosProveedores } from '../../services/gastos.js';
 import * as cb from '../../services/comprobantes.js';
+import * as pp from '../../services/preciosProveedor.js';
 
 const idDe = (req: FastifyRequest) => {
   const n = Number((req.params as { id: string }).id);
@@ -19,13 +20,22 @@ const comprobante = {
   descuentoCentavos: z.number().int().min(0).optional(), impuestosCentavos: z.number().int().min(0).optional(),
   condicionPago: z.enum(['al_pedir', 'al_recibir', 'a_plazo', 'cuenta_corriente']).nullable().optional(),
   plazoPagoDias: z.number().int().min(0).nullable().optional(), vencimiento: fecha.nullable().optional(),
+  importeFacturadoCentavos: z.number().int().min(0).nullable().optional(), ajustePrecioCentavos: z.number().int().optional(),
 };
 const esquemaCompra = z.object({
   ...comprobante,
   proveedorId: z.number().int(), tipo: z.enum(['reventa', 'confeccion', 'materiales']), fecha, fechaEsperada: fecha.nullable().optional(),
   notas: z.string().nullable().optional(),
-  items: z.array(z.object({ varianteId: z.number().int(), cantidad: z.number().int(), costoUnitarioCentavos: z.number().int(), notas: z.string().nullable().optional() })).default([]),
-  materiales: z.array(z.object({ materialId: z.number().int(), colorId: z.number().int().nullable().optional(), cantidadMil: z.number().int(), costoUnitarioCentavos: z.number().int(), notas: z.string().nullable().optional() })).optional(),
+  items: z.array(z.object({ varianteId: z.number().int(), cantidad: z.number().int(), costoUnitarioCentavos: z.number().int(), cantidadFacturada: z.number().int().min(0).nullable().optional(), notas: z.string().nullable().optional() })).default([]),
+  materiales: z.array(z.object({ materialId: z.number().int(), colorId: z.number().int().nullable().optional(), cantidadMil: z.number().int(), costoUnitarioCentavos: z.number().int(), cantidadFacturadaMil: z.number().int().min(0).nullable().optional(), notas: z.string().nullable().optional() })).optional(),
+});
+const esquemaCorreccion = z.object({
+  ...comprobante,
+  motivo: z.string(), fecha: fecha.optional(), fechaEsperada: fecha.nullable().optional(), notas: z.string().nullable().optional(), precioALoRecibido: z.boolean().optional(),
+  items: z.array(z.object({ id: z.number().int().optional(), varianteId: z.number().int().optional(), cantidad: z.number().int().min(0), costoUnitarioCentavos: z.number().int().min(0), cantidadFacturada: z.number().int().min(0).nullable().optional() })).optional(),
+  materiales: z.array(z.object({ id: z.number().int().optional(), materialId: z.number().int().optional(), colorId: z.number().int().nullable().optional(), cantidadMil: z.number().int().min(0), costoUnitarioCentavos: z.number().int().min(0), cantidadFacturadaMil: z.number().int().min(0).nullable().optional() })).optional(),
+  /** Precios a guardar como habituales del proveedor (solo si el usuario lo marca). */
+  habituales: z.array(z.object({ materialId: z.number().int().nullable().optional(), colorId: z.number().int().nullable().optional(), varianteId: z.number().int().nullable().optional(), precioCentavos: z.number().int().min(0) })).optional(),
 });
 /** Los importes de compras son costos: se quitan para los roles que no los pueden ver. */
 const IMPORTES = /Centavos$/;
@@ -56,6 +66,26 @@ export async function rutasCompras(app: FastifyInstance, { base, requiere, conId
     requiere(req, 'compras', 'modificar'); exigeCostos(req);
     const d = z.object({ ...comprobante, motivo: z.string().optional() }).parse(req.body);
     return base.tx((db) => cb.guardarComprobante(ctx(req, db), idDe(req), d, d.motivo));
+  });
+  app.put('/compras/:id/corregir', async (req) => {
+    requiere(req, 'compras', 'modificar'); exigeCostos(req);
+    const d = esquemaCorreccion.parse(req.body);
+    return base.tx((db) => {
+      const c = cp.corregirCompra(ctx(req, db), idDe(req), d);
+      for (const h of d.habituales ?? []) pp.fijarPrecioHabitual(ctx(req, db), { ...h, proveedorId: c.proveedorId, motivo: `Pedido P-${c.numero}: ${d.motivo}` });
+      return filtrarCostos(req, c, IMPORTES);
+    });
+  });
+  app.get('/proveedores/:id/precios', async (req) => { requiere(req, 'proveedores'); exigeCostos(req); return pp.historialPrecios(base.db, idDe(req)); });
+  app.post('/proveedores/:id/precios', async (req) => {
+    requiere(req, 'proveedores', 'modificar'); exigeCostos(req);
+    const d = z.object({ materialId: z.number().int().nullable().optional(), colorId: z.number().int().nullable().optional(), varianteId: z.number().int().nullable().optional(), precioCentavos: z.number().int().min(0), fecha: fecha.optional(), motivo: z.string().nullable().optional() }).parse(req.body);
+    return base.tx((db) => pp.fijarPrecioHabitual(ctx(req, db), { ...d, proveedorId: idDe(req) }));
+  });
+  app.post('/precios-proveedor/:id/anular', async (req) => {
+    requiere(req, 'proveedores', 'modificar'); exigeCostos(req);
+    const { motivo } = z.object({ motivo: z.string() }).parse(req.body);
+    return base.tx((db) => pp.anularPrecio(ctx(req, db), idDe(req), motivo));
   });
   app.post('/compras/:id/estado', async (req) => {
     const d = z.object({ accion: z.enum(['confirmar', 'cerrar', 'anular']), motivo: z.string().optional() }).parse(req.body);

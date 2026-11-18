@@ -1,12 +1,13 @@
 import { useState, type ReactNode } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { Contact, Archive, Layers, Factory, BarChart3, Boxes, Calculator, Scissors, Sparkles, CreditCard, HandCoins, Receipt, ShoppingBag, Wallet, ClipboardList, PackageCheck, ListTodo, BookOpen, Database, FileUp, Home, LogOut, Menu, Settings, ShieldCheck, Tag, Tags, Truck, User, Users, X } from 'lucide-react';
+import { Contact, Archive, Layers, Factory, BarChart3, Boxes, Calculator, Scissors, Sparkles, CreditCard, HandCoins, Receipt, ReceiptText, ShoppingBag, Wallet, ClipboardList, PackageCheck, ListTodo, BookOpen, Database, FileUp, Home, LogOut, Menu, Settings, ShieldCheck, Tag, Tags, Truck, User, Users, X } from 'lucide-react';
 import { useSesion } from '../sesion';
 import { Logo } from './ui';
 
 type Item = { a: string; texto: string; icono: typeof Home; modulo?: string; accion?: 'crear'; requiere?: string };
 const SECCIONES: { titulo: string; items: Item[] }[] = [
   { titulo: '', items: [
+    { a: '/facturar', texto: 'Facturación directa', icono: ReceiptText, modulo: 'ventas', accion: 'crear' },
     { a: '/', texto: 'Caja', icono: Wallet, modulo: 'caja' },
     { a: '/ventas', texto: 'Ventas', icono: ShoppingBag, modulo: 'ventas' },
     { a: '/clientes', texto: 'Clientes', icono: Contact, modulo: 'ventas' },

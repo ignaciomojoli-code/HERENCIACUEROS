@@ -27,6 +27,7 @@ import { ErrorNegocio, noEncontrado } from './errores.js';
 import { claveMaterial, colorDeMovimiento, costoDeCantidad, nombresColores, obtenerReceta } from './costos.js';
 import { crearCompra } from './compras.js';
 import { hoyLocal } from './caja.js';
+import { precioParaEstimar } from './preciosProveedor.js';
 
 type Receta = ReturnType<typeof obtenerReceta>;
 
@@ -131,13 +132,15 @@ export function calcularReposicion(db: DB, hoy = hoyLocal()) {
     const aPedirMil = Math.max(0, faltanteMil - descartadoMil);
     const descartadoVigenteMil = Math.min(descartadoMil, faltanteMil);
     const proveedorId = cambioProv?.proveedorId ?? m.proveedorId;
+    // Precio para estimar: el habitual de ese proveedor (si hay) o el costo cargado del material. Es orientativo.
+    const costoEstimado = precioParaEstimar(db, proveedorId, m.id, colorId, m.costoCentavos);
     return {
       clave: k, materialId: m.id, colorId, color: m.porColor ? (colorId ? colores.get(colorId) ?? '—' : 'Sin color') : null, porColor: m.porColor,
-      codigo: m.codigo, nombre: m.nombre, unidad: m.unidad, clasificacion: m.clasificacion, costoCentavos: m.costoCentavos,
+      codigo: m.codigo, nombre: m.nombre, unidad: m.unidad, clasificacion: m.clasificacion, costoCentavos: costoEstimado,
       proveedorId, proveedor: proveedorId ? provNombre.get(proveedorId) ?? '—' : null, proveedorHabitual: proveedor, proveedorCambiado: !!cambioProv,
       stockMil, sinConteo: !conConteo.has(m.id), minimoMil, ventasMil, comprometidoMil, pedidoMil, borradorMil, necesidadMil, faltanteMil, descartadoMil: descartadoVigenteMil, aPedirMil,
       pospuestoHasta: posp?.hasta ?? null,
-      valorCentavos: m.costoCentavos != null ? costoDeCantidad(m.costoCentavos, aPedirMil) : null,
+      valorCentavos: costoEstimado != null ? costoDeCantidad(costoEstimado, aPedirMil) : null,
       detalle: { ventas: porVentas.get(k) ?? [], taller: porTaller.get(k) ?? [], pedidos, decisiones: dec },
     };
   }).filter((f) => !f.porColor || f.colorId === null || f.necesidadMil > 0 || f.stockMil !== 0 || f.detalle.pedidos.length || f.detalle.decisiones.length);
@@ -249,7 +252,7 @@ export function armarPedidoMateriales(ctx: Ctx, d: { proveedorId: number; lineas
   if (!d.lineas.length) throw new ErrorNegocio('Elegí al menos un material');
   const ms = d.lineas.map((l) => {
     const m = materialValido(ctx.db, l.materialId);
-    const costo = l.costoUnitarioCentavos ?? m.costoCentavos;
+    const costo = l.costoUnitarioCentavos ?? precioParaEstimar(ctx.db, d.proveedorId, m.id, l.colorId ?? null, m.costoCentavos);
     if (costo == null) throw new ErrorNegocio(`Falta el costo de ${m.nombre}: indicalo en el pedido o cargalo en Materiales`);
     return { materialId: m.id, colorId: colorDeMovimiento(ctx.db, m, l.colorId), cantidadMil: l.cantidadMil, costoUnitarioCentavos: costo };
   });

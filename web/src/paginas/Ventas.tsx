@@ -14,7 +14,7 @@ import { dolares, fechaCorta, hoy, inicioMes, queriesPlata, useFormasPago } from
 
 interface VentaFila {
   id: number; numero: number; fecha: string; cliente: string | null; clienteId: number | null; estado: 'confirmada' | 'anulada'; notas: string | null;
-  listaPrecioId: number | null; descuentoCentavos: number; motivoDescuento: string | null; version: number;
+  listaPrecioId: number | null; descuentoCentavos: number; motivoDescuento: string | null; version: number; efectivoRecibidoCentavos?: number | null;
   subtotalCentavos: number; cobradoCentavos: number; saldoCentavos: number; totalCentavos: number; listaCentavos: number | null; diferenciaListaCentavos: number | null; comisionCentavos: number;
   costoMercaderiaCentavos?: number | null; gananciaCentavos?: number | null; unidades: number; productos: string; skus: string; formas: string;
 }
@@ -49,7 +49,8 @@ export function PaginaVentas() {
     <>
       <Encabezado titulo="Ventas" sub="Cada venta descuenta stock y registra la plata en su cuenta.">
         {puede('ventas', 'exportar') && <a className="btn-secundario" href={'/api/ventas/exportar' + qs(filtro)}><Download className="h-4 w-4" />Excel</a>}
-        {puede('ventas', 'crear') && <Link className="btn-primario" to="/ventas/nueva"><Plus className="h-4 w-4" />Nueva venta</Link>}
+        {puede('ventas', 'crear') && <Link className="btn-secundario" to="/ventas/nueva" title="Con otra fecha, cliente o notas"><Plus className="h-4 w-4" />Venta detallada</Link>}
+        {puede('ventas', 'crear') && <Link className="btn-primario" to="/facturar"><Plus className="h-4 w-4" />Facturar</Link>}
       </Encabezado>
       <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
         <input className="entrada" type="date" value={f.desde} onChange={(e) => fijar('desde', e.target.value)} aria-label="Desde" />
@@ -426,6 +427,7 @@ export function PaginaVenta() {
           <div className="tarjeta p-5">
             <div className="etiqueta mb-2">Cobrado al vender</div>
             {alVender.length ? alVender.map(filaPago) : <p className="text-sm text-carbon/55">Nada: quedó todo a cobrar.</p>}
+            {v.data!.efectivoRecibidoCentavos != null && <p className="mt-2 text-xs text-carbon/60">Pagó con {pesos(v.data!.efectivoRecibidoCentavos)} en efectivo · vuelto {pesos(v.data!.efectivoRecibidoCentavos - alVender.filter((p) => p.tipoCuenta === 'efectivo' && p.moneda === 'ARS').reduce((s, p) => s + p.importeCentavos, 0))}</p>}
             {despues.length > 0 && <>
               <div className="etiqueta mb-2 mt-4">Cobros posteriores</div>
               {despues.map(filaPago)}

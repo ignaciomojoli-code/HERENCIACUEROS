@@ -23,6 +23,8 @@ export interface DatosCobro { formaPagoId: number; importeCentavos: number; impo
 export interface DatosVenta {
   fecha: string; cliente?: string | null; clienteId?: number | null; listaPrecioId?: number | null; notas?: string | null;
   descuentoCentavos?: number; motivoDescuento?: string | null;
+  /** Efectivo que entregó el cliente (para calcular el vuelto). No entra a caja: entra solo lo aplicado a la venta. */
+  efectivoRecibidoCentavos?: number | null;
   items: { varianteId: number; cantidad: number; precioCentavos: number }[];
   pagos: DatosCobro[];
 }
@@ -101,24 +103,36 @@ function grabarItems(ctx: Ctx, v: { id: number; numero: number }, d: DatosVenta,
 
 const textoPesos = (c: number) => (c / 100).toLocaleString('es-AR');
 
+/** Valida el efectivo entregado contra lo que se cobra en efectivo y devuelve lo que se guarda (null si no se indicó). */
+function efectivoRecibido(d: DatosVenta, pagos: ReturnType<typeof prepararCobros>) {
+  if (d.efectivoRecibidoCentavos == null) return null;
+  const enEfectivo = pagos.filter((p) => p.cuenta.tipo === 'efectivo' && p.cuenta.moneda === 'ARS').reduce((s, p) => s + p.importeCentavos, 0);
+  if (!Number.isInteger(d.efectivoRecibidoCentavos) || d.efectivoRecibidoCentavos < 0) throw new ErrorNegocio('Efectivo recibido inválido');
+  if (!enEfectivo) return null;
+  if (d.efectivoRecibidoCentavos < enEfectivo) throw new ErrorNegocio(`El efectivo recibido (${textoPesos(d.efectivoRecibidoCentavos)}) no alcanza para lo que se cobra en efectivo (${textoPesos(enEfectivo)})`);
+  return d.efectivoRecibidoCentavos;
+}
+
 export function crearVenta(ctx: Ctx, d: DatosVenta) {
   const val = validarVenta(ctx, d);
   const pagos = prepararCobros(ctx.db, d.pagos);
   const cobrado = pagos.reduce((s, p) => s + p.importeCentavos, 0);
   if (cobrado > val.total) throw new ErrorNegocio(`Lo cobrado (${textoPesos(cobrado)}) supera el total de la venta (${textoPesos(val.total)})`);
   if (cobrado < val.total && !val.cliente) throw new ErrorNegocio(`Lo cobrado (${textoPesos(cobrado)}) no llega al total (${textoPesos(val.total)}). Si queda debiendo, elegí el cliente`);
+  const recibido = efectivoRecibido(d, pagos);
 
   const t = ahora();
   const v = ctx.db.insert(ventas).values({
     numero: siguienteNumero(ctx.db, 'venta'), fecha: d.fecha, cliente: val.cliente?.nombre ?? (d.cliente?.trim() || null), clienteId: val.cliente?.id ?? null,
     listaPrecioId: val.listaId, notas: d.notas?.trim() || null, descuentoCentavos: val.descuento, motivoDescuento: val.descuento ? d.motivoDescuento!.trim() : null,
-    usuarioId: ctx.usuarioId, creadoEn: t, actualizadoEn: t,
+    efectivoRecibidoCentavos: recibido, usuarioId: ctx.usuarioId, creadoEn: t, actualizadoEn: t,
   }).returning().get();
   grabarItems(ctx, v, d, val);
   for (const p of pagos) registrarCobro(ctx, v, p, d.fecha, false);
   sumarVenta(ctx, v.id, d.items);
   auditar(ctx.db, { usuarioId: ctx.usuarioId, accion: 'crear', entidad: 'venta', entidadId: v.id, despues: { numero: v.numero, fecha: d.fecha, totalCentavos: val.total, descuentoCentavos: val.descuento, clienteId: v.clienteId, items: d.items, pagos: d.pagos } });
-  return { id: v.id, numero: v.numero, totalCentavos: val.total, saldoCentavos: val.total - cobrado };
+  const enEfectivo = pagos.filter((p) => p.cuenta.tipo === 'efectivo' && p.cuenta.moneda === 'ARS').reduce((s, p) => s + p.importeCentavos, 0);
+  return { id: v.id, numero: v.numero, totalCentavos: val.total, saldoCentavos: val.total - cobrado, vueltoCentavos: recibido == null ? 0 : recibido - enEfectivo };
 }
 
 /** Salidas de stock de la venta que todavía no fueron devueltas. */
@@ -151,6 +165,7 @@ export function editarVenta(ctx: Ctx, id: number, d: DatosVenta, motivo: string)
   const cobrado = pagos.reduce((s, p) => s + p.importeCentavos, 0) + posteriores;
   if (cobrado > val.total) throw new ErrorNegocio(`Lo cobrado (${textoPesos(cobrado)}, incluye cobros posteriores) supera el total nuevo (${textoPesos(val.total)}). Anulá antes el cobro que sobra`);
   if (cobrado < val.total && !val.cliente) throw new ErrorNegocio(`Lo cobrado (${textoPesos(cobrado)}) no llega al total (${textoPesos(val.total)}). Si queda debiendo, elegí el cliente`);
+  const recibido = d.efectivoRecibidoCentavos === undefined ? v.efectivoRecibidoCentavos : efectivoRecibido(d, pagos);
 
   const anterior = obtenerVenta(ctx.db, id);
   ctx.db.insert(ventaVersiones).values({ ventaId: id, version: v.version, datos: anterior, motivo: motivo.trim(), usuarioId: ctx.usuarioId, fecha: ahora() }).run();
@@ -165,7 +180,7 @@ export function editarVenta(ctx: Ctx, id: number, d: DatosVenta, motivo: string)
   ctx.db.delete(ventaPagos).where(and(eq(ventaPagos.ventaId, id), isNull(ventaPagos.fecha))).run();
   const nueva = ctx.db.update(ventas).set({
     fecha: d.fecha, cliente: val.cliente?.nombre ?? (d.cliente?.trim() || null), clienteId: val.cliente?.id ?? null, listaPrecioId: val.listaId, notas: d.notas?.trim() || null,
-    descuentoCentavos: val.descuento, motivoDescuento: val.descuento ? d.motivoDescuento!.trim() : null, version: v.version + 1, actualizadoEn: ahora(),
+    descuentoCentavos: val.descuento, motivoDescuento: val.descuento ? d.motivoDescuento!.trim() : null, efectivoRecibidoCentavos: recibido, version: v.version + 1, actualizadoEn: ahora(),
   }).where(eq(ventas.id, id)).returning().get();
   grabarItems(ctx, nueva, d, val);
   for (const p of pagos) registrarCobro(ctx, nueva, p, d.fecha, false);
