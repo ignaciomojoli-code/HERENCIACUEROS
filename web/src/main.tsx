@@ -1,4 +1,5 @@
 import { PaginaParaPedir } from './paginas/ParaPedir';
+import { PaginaReposicion } from './paginas/Reposicion';
 import { PaginaReponerMateriales } from './paginas/ReponerMateriales';
 import { PaginaProduccion } from './paginas/Produccion';
 import { StrictMode, useEffect, useState } from 'react';
@@ -95,6 +96,7 @@ function App() {
           {puede('stock') && <Route path="/conteos" element={<PaginaConteos />} />}
           {puede('stock') && <Route path="/conteos/:id" element={<PaginaConteo />} />}
           {puede('compras') && <Route path="/compras" element={<PaginaCompras />} />}
+          {puede('compras') && <Route path="/reposicion" element={<PaginaReposicion />} />}
           {puede('compras') && <Route path="/para-pedir" element={<PaginaParaPedir />} />}
           {puede('compras') && <Route path="/reponer-materiales" element={<PaginaReponerMateriales />} />}
           {puede('compras', 'crear') && <Route path="/compras/nuevo" element={<PaginaCompraForm />} />}

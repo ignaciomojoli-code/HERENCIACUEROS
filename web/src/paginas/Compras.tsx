@@ -33,7 +33,7 @@ interface Recepcion {
   items: { id: number; sku: string; cantidad: number; costoUnitarioCentavos?: number }[]; materiales: { id: number; material: string; unidad: Unidad; cantidadMil: number; costoUnitarioCentavos?: number }[];
 }
 interface Compra extends Omit<CompraResumen, 'pedidas' | 'recibidas'> { notas: string | null; totalEstimadoCentavos?: number; totalConfirmadoCentavos?: number; items: ItemC[]; materiales: LineaMat[]; recepciones: Recepcion[]; pagos: { pagoId: number; numero: number; fecha: string; importeCentavos: number; totalPagoCentavos: number }[] }
-interface Proveedor { id: number; nombre: string; activo: boolean; condicionPago: CondicionPago | null; plazoPagoDias: number | null }
+interface Proveedor { id: number; nombre: string; activo: boolean; rol?: string | null; condicionPago: CondicionPago | null; plazoPagoDias: number | null }
 
 export const ESTADOS_PEDIDO: Record<EstadoPedido, [string, string]> = {
   pendiente_solicitar: ['Pendiente de solicitar', 'bg-arena/50 text-carbon/70'], solicitado: ['Solicitado', 'bg-conac-claro text-conac'],
@@ -176,7 +176,7 @@ export function PaginaCompraForm() {
       <div className="tarjeta mb-4 grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-4">
         <Campo etiqueta="Proveedor / taller">
           <select className="entrada" value={d.proveedorId} onChange={(e) => setD({ ...d, proveedorId: Number(e.target.value) })}>
-            <option value={0}>Elegí…</option>{provs.data?.filter((p) => p.activo).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+            <option value={0}>Elegí…</option>{provs.data?.filter((p) => p.activo || p.rol === 'materiales' || p.id === d.proveedorId).map((p) => <option key={p.id} value={p.id}>{p.nombre}{p.activo ? '' : ' (inactivo)'}</option>)}
           </select>
         </Campo>
         <Campo etiqueta="Tipo" ayuda={d.tipo === 'confeccion' ? 'Se paga la confección: suma stock pero no cambia el costo del producto' : esMat ? 'Cuero, forrería, avíos: entra al stock de materiales y actualiza su costo' : 'Producto terminado: actualiza el costo promedio'}>

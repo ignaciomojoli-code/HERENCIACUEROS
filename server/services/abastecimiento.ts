@@ -152,8 +152,9 @@ export function abastecimiento(db: DB, compraId: number) {
     materiales: filas,
     sugerencias: [...grupos.values()].sort((a, b) => Number(a.cuero) - Number(b.cuero) || a.proveedor.localeCompare(b.proveedor)),
     reservadoEnOtros: otrosConReserva,
-    proveedoresMateriales: db.select({ id: proveedores.id, nombre: proveedores.nombre, rol: proveedores.rol }).from(proveedores).where(eq(proveedores.activo, true)).all()
-      .filter((p) => p.rol === 'materiales' || p.rol === null).sort((a, b) => a.nombre.localeCompare(b.nombre)),
+    proveedoresMateriales: db.select({ id: proveedores.id, nombre: proveedores.nombre, rol: proveedores.rol, activo: proveedores.activo }).from(proveedores).all()
+      // Los de materiales se ofrecen aunque estén inactivos (Céfalo para el cuero); los sin rol, solo activos.
+      .filter((p) => p.rol === 'materiales' || (p.rol === null && p.activo)).sort((a, b) => a.nombre.localeCompare(b.nombre)),
   };
 }
 

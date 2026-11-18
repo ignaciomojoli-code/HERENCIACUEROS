@@ -19,7 +19,7 @@ interface Fila {
 }
 interface Grupo { proveedorId: number | null; proveedor: string; items: Fila[]; valorCentavos?: number }
 interface Repo { hoy: string; materiales: Fila[]; grupos: Grupo[]; pospuestos: Fila[]; sinConteo: Fila[]; modelosSinReceta: string[] }
-interface Proveedor { id: number; nombre: string; activo: boolean }
+interface Proveedor { id: number; nombre: string; activo: boolean; rol: string | null }
 
 const c = (mil: number, u: Unidad) => `${cant(mil)} ${u}`;
 
@@ -248,7 +248,7 @@ function FormDecision({ f, accion, onCerrar, onListo }: { f: Fila; accion: 'posp
       {accion === 'descartar' && <Campo etiqueta={`Cantidad que no se pide (${f.unidad})`} ayuda="Lo que falta hoy y no vas a pedir. Si después hace falta más, aparece solo lo nuevo."><input className="entrada w-32" inputMode="decimal" value={texto} onChange={(e) => setTexto(e.target.value)} /></Campo>}
       {accion === 'proveedor' && (
         <Campo etiqueta="Pedírselo a" ayuda="Solo para este pedido. El proveedor habitual se cambia en Materiales.">
-          <select className="entrada" value={prov} onChange={(e) => setProv(Number(e.target.value))}><option value={0}>Elegí…</option>{provs.data?.filter((p) => p.activo).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}</select>
+          <select className="entrada" value={prov} onChange={(e) => setProv(Number(e.target.value))}><option value={0}>Elegí…</option>{provs.data?.filter((p) => p.activo || p.rol === 'materiales').map((p) => <option key={p.id} value={p.id}>{p.nombre}{p.activo ? '' : ' (inactivo)'}</option>)}</select>
         </Campo>
       )}
       <Campo etiqueta={accion === 'descartar' ? 'Motivo' : 'Motivo (opcional)'}><input className="entrada" value={motivo} onChange={(e) => setMotivo(e.target.value)} /></Campo>

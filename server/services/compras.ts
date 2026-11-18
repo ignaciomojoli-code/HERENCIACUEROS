@@ -80,7 +80,8 @@ function validarItems(db: DB, items: ItemCompra[]) {
 function validarProveedor(db: DB, id: number) {
   const p = db.select().from(proveedores).where(eq(proveedores.id, id)).get();
   if (!p) throw noEncontrado('El proveedor');
-  if (!p.activo) throw new ErrorNegocio(`${p.nombre} está inactivo`);
+  // Un proveedor de materiales inactivo (ej. Céfalo para el cuero) se puede seguir eligiendo para pedirle.
+  if (!p.activo && p.rol !== 'materiales') throw new ErrorNegocio(`${p.nombre} está inactivo`);
   return p;
 }
 

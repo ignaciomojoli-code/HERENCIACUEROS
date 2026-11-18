@@ -91,13 +91,13 @@ export function listarParaPedir(db: DB) {
 }
 
 /** Tipo de pedido sugerido: el del último pedido a ese proveedor (taller → confección). */
-function tipoSugerido(db: DB, proveedorId: number): 'reventa' | 'confeccion' {
+export function tipoSugerido(db: DB, proveedorId: number): 'reventa' | 'confeccion' {
   const ult = db.select({ tipo: compras.tipo }).from(compras).where(and(eq(compras.proveedorId, proveedorId), sql`${compras.estado} != 'anulada'`, sql`${compras.tipo} != 'materiales'`)).orderBy(sql`${compras.id} desc`).limit(1).get();
   return ult?.tipo === 'confeccion' ? 'confeccion' : 'reventa';
 }
 
 /** Costo sugerido: reventa = costo actual del producto; confección = mano de obra de la receta del modelo. */
-function costoSugerido(db: DB, tipo: 'reventa' | 'confeccion', v: { modeloId: number; talle: string | null; costoCentavos: number | null }) {
+export function costoSugerido(db: DB, tipo: 'reventa' | 'confeccion', v: { modeloId: number; talle: string | null; costoCentavos: number | null }) {
   if (tipo === 'reventa') return v.costoCentavos ?? 0;
   const mo = obtenerReceta(db, v.modeloId).filter((l) => l.tipoMaterial === 'mano_obra' && (!l.talles || (v.talle !== null && l.talles.includes(v.talle))));
   return mo.reduce((s, l) => s + Math.round((l.cantidadMil * (l.costoUnidadCentavos ?? 0)) / 1000), 0);

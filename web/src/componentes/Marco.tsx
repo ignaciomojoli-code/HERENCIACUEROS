@@ -5,45 +5,40 @@ import { useSesion } from '../sesion';
 import { Logo } from './ui';
 
 type Item = { a: string; texto: string; icono: typeof Home; modulo?: string; accion?: 'crear'; requiere?: string };
+/** Menú principal en el orden pedido; lo demás (que ya funcionaba) queda en secciones secundarias. */
 const SECCIONES: { titulo: string; items: Item[] }[] = [
   { titulo: '', items: [
-    { a: '/facturar', texto: 'Facturación directa', icono: ReceiptText, modulo: 'ventas', accion: 'crear' },
     { a: '/', texto: 'Caja', icono: Wallet, modulo: 'caja' },
+    { a: '/facturar', texto: 'Facturación directa', icono: ReceiptText, modulo: 'ventas', accion: 'crear' },
     { a: '/ventas', texto: 'Ventas', icono: ShoppingBag, modulo: 'ventas' },
-    { a: '/clientes', texto: 'Clientes', icono: Contact, modulo: 'ventas' },
+    { a: '/catalogo', texto: 'Productos', icono: Tags, modulo: 'catalogo' },
+    { a: '/stock', texto: 'Stock', icono: Boxes, modulo: 'stock' },
+    { a: '/reposicion', texto: 'Reposición general', icono: ListTodo, modulo: 'compras' },
+    { a: '/compras', texto: 'Pedidos a proveedores', icono: PackageCheck, modulo: 'compras' },
+    { a: '/compras?estado=todos', texto: 'Compras', icono: Archive, modulo: 'compras' },
+    { a: '/proveedores', texto: 'Proveedores', icono: Truck, modulo: 'proveedores' },
+    { a: '/produccion', texto: 'Producción', icono: Factory, modulo: 'materiales' },
+    { a: '/pagos', texto: 'Cuentas corrientes', icono: HandCoins, modulo: 'caja' },
+    { a: '/gastos', texto: 'Gastos', icono: Receipt, modulo: 'gastos' },
+    { a: '/reportes', texto: 'Estadísticas', icono: BarChart3, modulo: 'panel' },
+    { a: '/auditoria', texto: 'Auditoría', icono: ShieldCheck, modulo: 'auditoria' },
   ] },
-  { titulo: 'Productos', items: [
-    { a: '/catalogo', texto: 'Catálogo', icono: Tags, modulo: 'catalogo' },
+  { titulo: 'Más de ventas y productos', items: [
+    { a: '/clientes', texto: 'Clientes', icono: Contact, modulo: 'ventas' },
     { a: '/precios', texto: 'Precios', icono: Tag, modulo: 'precios' },
     { a: '/precios/sugeridos', texto: 'Precios sugeridos', icono: Sparkles, modulo: 'precios', requiere: 'costos' },
     { a: '/tablas', texto: 'Categorías, colores y talles', icono: BookOpen, modulo: 'catalogo' },
+    { a: '/conteos', texto: 'Conteos físicos', icono: ClipboardList, modulo: 'stock' },
     { a: '/importar', texto: 'Importar planilla', icono: FileUp, modulo: 'importacion', accion: 'crear' },
   ] },
-  { titulo: 'Stock', items: [
-    { a: '/stock', texto: 'Stock', icono: Boxes, modulo: 'stock' },
-    { a: '/conteos', texto: 'Conteos físicos', icono: ClipboardList, modulo: 'stock' },
-  ] },
-  { titulo: 'Reposición y pedidos', items: [
-    { a: '/para-pedir', texto: 'Para pedir', icono: ListTodo, modulo: 'compras' },
+  { titulo: 'Más de compras y producción', items: [
+    { a: '/para-pedir', texto: 'Para pedir (solo ventas)', icono: ListTodo, modulo: 'compras' },
     { a: '/reponer-materiales', texto: 'Reponer materiales', icono: Layers, modulo: 'compras' },
-    { a: '/compras', texto: 'Pedidos y recepciones', icono: PackageCheck, modulo: 'compras' },
     { a: '/importar-compras', texto: 'Importar compras', icono: FileUp, modulo: 'importacion', accion: 'crear' },
-  ] },
-  { titulo: 'Proveedores', items: [
-    { a: '/proveedores', texto: 'Proveedores', icono: Truck, modulo: 'proveedores' },
-    { a: '/pagos', texto: 'Cuentas corrientes y pagos', icono: HandCoins, modulo: 'caja' },
-  ] },
-  { titulo: 'Producción', items: [
-    { a: '/produccion', texto: 'Producción y custodia', icono: Factory, modulo: 'materiales' },
     { a: '/materiales', texto: 'Materiales', icono: Scissors, modulo: 'materiales' },
     { a: '/costeo', texto: 'Recetas y costeo', icono: Calculator, modulo: 'costos' },
-  ] },
-  { titulo: 'Gastos y estadísticas', items: [
-    { a: '/gastos', texto: 'Gastos', icono: Receipt, modulo: 'gastos' },
     { a: '/gastos-personales', texto: 'Gastos personales', icono: User, modulo: 'caja' },
     { a: '/resumen', texto: 'Resumen', icono: Home },
-    { a: '/reportes', texto: 'Estadísticas', icono: BarChart3, modulo: 'panel' },
-    { a: '/auditoria', texto: 'Auditoría', icono: ShieldCheck, modulo: 'auditoria' },
   ] },
   { titulo: 'Sistema', items: [
     { a: '/cuentas', texto: 'Cuentas y formas de pago', icono: CreditCard, modulo: 'caja' },
@@ -52,6 +47,15 @@ const SECCIONES: { titulo: string; items: Item[] }[] = [
     { a: '/backups', texto: 'Copias de seguridad', icono: Database, modulo: 'backups' },
   ] },
 ];
+
+/** "Pedidos a proveedores" y "Compras" son la misma pantalla con distinto filtro: se marca la que corresponde. */
+function activo(i: Item, pathname: string, search: string) {
+  const [ruta, qs] = i.a.split('?');
+  if (ruta === '/' || ruta === '/precios') return pathname === ruta && (!qs || search.includes(qs));
+  if (!(pathname === ruta || pathname.startsWith(ruta + '/'))) return false;
+  if (ruta === '/compras' && pathname === '/compras') return qs ? search.includes(qs) : !search.includes('estado=todos');
+  return true;
+}
 
 export function Marco({ children }: { children: ReactNode }) {
   const { usuario, puede, salir } = useSesion();
@@ -71,8 +75,8 @@ export function Marco({ children }: { children: ReactNode }) {
             <div key={s.titulo}>
               {s.titulo && <div className="mb-1 px-3 text-[10px] font-medium uppercase tracking-etiqueta text-dorado/80">{s.titulo}</div>}
               {items.map((i) => (
-                <NavLink key={i.a} to={i.a} end={i.a === '/' || i.a === '/precios'}
-                  className={({ isActive }) => `flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${isActive ? 'bg-marfil/10 text-marfil' : 'text-marfil/65 hover:bg-marfil/5 hover:text-marfil'}`}>
+                <NavLink key={i.a} to={i.a}
+                  className={() => `flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${activo(i, loc.pathname, loc.search) ? 'bg-marfil/10 text-marfil' : 'text-marfil/65 hover:bg-marfil/5 hover:text-marfil'}`}>
                   <i.icono className="h-4 w-4 text-dorado" />{i.texto}
                 </NavLink>
               ))}
